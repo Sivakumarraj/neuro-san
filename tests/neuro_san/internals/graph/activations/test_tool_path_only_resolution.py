@@ -131,6 +131,31 @@ class TestToolPathOnlyResolution(TestCase):
             'in module "math"',
         ]
         self.assertEqual(self.first_lines(str(raised_error.exception), 2), expected_lines)
+        # The cause names the module that clashed, not an AGENT_TOOL_PATH package.
+        self.assertEqual(str(raised_error.exception.__cause__), "module 'math' has no attribute 'MissingTool'")
+
+    def test_default_mode_keeps_a_clashing_module_that_has_the_class(self) -> None:
+        """
+        Test that with the flag off, a short ref whose module name is another importable module
+        that does have the class still resolves to that module's class, as documented.
+        """
+        with patch.dict(os.environ):
+            os.environ.pop("AGENT_TOOL_PATH_ONLY", None)
+            resolved_class: Type[Any] = self.fixture_activation.resolve_class("JSONDecoder", "json")
+            self.assertEqual(resolved_class.__module__, "json.decoder")
+
+    def test_default_mode_typo_in_fully_qualified_class_names_its_module(self) -> None:
+        """
+        Test that with the flag off, a fully-qualified ref whose module exists but whose class
+        name is misspelled fails with a cause that names the referenced module.
+        """
+        with patch.dict(os.environ):
+            os.environ.pop("AGENT_TOOL_PATH_ONLY", None)
+            with self.assertRaises(ValueError) as raised_error:
+                self.fixture_activation.resolve_class("CanaryToool", CANARY_MODULE)
+
+        self.assertEqual(str(raised_error.exception.__cause__),
+                         f"module '{CANARY_MODULE}' has no attribute 'CanaryToool'")
 
     def test_tool_path_only_blocks_fully_qualified_ref_without_importing(self) -> None:
         """

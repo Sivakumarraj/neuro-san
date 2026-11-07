@@ -298,7 +298,8 @@ Check these things:
         :param agent_network_name_parts: The agent network name split into parts
         :return: The resolved Python class
         :raises ValueError: If the last root searched had no such module
-        :raises AttributeError: If the last root searched found the module but not the class
+        :raises AttributeError: If Phase 1 imported the referenced module but found no such class in it,
+                                or else if the last root searched found the module but not the class
         """
         # Phase 1 - Try the simplest thing first - a direct import from a fully-qualified path.
         # This is skipped when AGENT_TOOL_PATH_ONLY is set: importing a module executes its
@@ -306,6 +307,7 @@ Check these things:
         # could otherwise run import-time code from any module on the server's PYTHONPATH.
         # Phase 2 below roots every import under the AGENT_TOOL_PATH hierarchy, so a
         # reference cannot escape it.
+        phase1_exception: AttributeError = None
         if not self.is_agent_tool_path_only():
             self._log_unrestricted_resolution_notice_once()
 
@@ -320,6 +322,7 @@ Check these things:
                 # Treat it as not found so that Phase 2 still searches AGENT_TOOL_PATH.
                 self.sensitive_logger.debug("Class `%s` not found by direct import of module `%s`: %s",
                                             class_name, module_name, exception)
+                phase1_exception = exception
             if phase1_class is not None:
                 return phase1_class
 
@@ -340,6 +343,13 @@ Check these things:
                 self.sensitive_logger.debug("Class `%s` in module `%s` not found under `%s`: %s",
                                             class_name, module_name, one_agent_tool_path, exception)
                 last_exception = exception
+
+        # Phase 1 found the module the reference names, so its error is the more specific one:
+        # it names that module, where Phase 2's names an AGENT_TOOL_PATH package. That keeps the
+        # cause for a typo in a fully-qualified class name, and shows which module a short
+        # reference clashed with.
+        if phase1_exception is not None:
+            raise phase1_exception
 
         # Re-raise the last exception so the caller knows resolution failed
         if last_exception is not None:
