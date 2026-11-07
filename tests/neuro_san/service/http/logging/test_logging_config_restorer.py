@@ -42,8 +42,11 @@ class TestLoggingConfigRestorer(TestCase):
     DOTTED_LOGGER_NAME: str = "neuro_san_test_logging_config_restorer.dotted"
 
     # Dotted logger names must be quoted in HOCON, which is what issue #1205 is about
+    # incremental = true only sets levels, so dictConfig() leaves every other handler
+    # and logger in the test process as it was.
     DOTTED_LOGGER_HOCON: str = f"""
 version = 1
+incremental = true
 disable_existing_loggers = false
 loggers {{
     "{DOTTED_LOGGER_NAME}" {{

@@ -24,12 +24,15 @@ class LoggingConfigFileRestorer(AbstractAsyncConfigRestorer):
 
     HOCON is parsed with sanitize_keys=True, so a logger name that has to be quoted in HOCON,
     such as "neuro_san.internals", comes back without the quotes and matches the logger.
-    A missing file raises FileNotFoundError.
+    A missing file raises FileNotFoundError, which names AGENT_SERVICE_LOG_JSON, the
+    environment variable that sets the path.
     LoggingConfigRestorer uses this class for its HOCON and JSON files.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Constructor
         """
-        super().__init__(file_purpose="logging config")
+        # LoggingConfigRestorer always passes the path, so env_var only shapes the
+        # message for a missing file.
+        super().__init__(file_purpose="logging config", env_var="AGENT_SERVICE_LOG_JSON")
