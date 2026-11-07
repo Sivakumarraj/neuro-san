@@ -309,8 +309,17 @@ Check these things:
         if not self.is_agent_tool_path_only():
             self._log_unrestricted_resolution_notice_once()
 
-            phase1_class: Type[Any] = ResolverUtil.create_type(
-                f"{module_name}.{class_name}", raise_if_not_found=False)
+            phase1_class: Type[Any] = None
+            try:
+                phase1_class = ResolverUtil.create_type(f"{module_name}.{class_name}", raise_if_not_found=False)
+            except AttributeError as exception:
+                # raise_if_not_found=False only covers a module that cannot be imported.
+                # A module that imports but has no such class raises AttributeError instead.
+                # That happens when the module name is also another importable module,
+                # such as "math" from the standard library or "slack" from slack_sdk.
+                # Treat it as not found so that Phase 2 still searches AGENT_TOOL_PATH.
+                self.sensitive_logger.debug("Class `%s` not found by direct import of module `%s`: %s",
+                                            class_name, module_name, exception)
             if phase1_class is not None:
                 return phase1_class
 

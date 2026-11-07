@@ -837,6 +837,12 @@ If the agent is called `math_guy` and the class is valued as `calculator.Calcula
 The python file math_guy/calculator.py under `AGENT_TOOL_PATH` is expected to have
 a class called Calculator which implements the CodedTool interface.
 
+Unless `AGENT_TOOL_PATH_ONLY` is `true` (see below), a `class` value is first tried as a fully-qualified
+reference. If its module name is also the name of another importable module, such as `math` from the
+standard library or a module of an installed package, and that module has no class of that name,
+resolution goes on to search `AGENT_TOOL_PATH` as described above. If that other module does have a
+class of that name, that class is used instead, so prefer module names that do not clash.
+
 Like `PYTHONPATH`, `AGENT_TOOL_PATH` can list several roots, searched in order. A root can also be a
 Python module path such as `neuro_san.coded_tools`, for coded tools installed as a package. For example:
 

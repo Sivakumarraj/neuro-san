@@ -98,6 +98,40 @@ class TestToolPathOnlyResolution(TestCase):
             resolved_class: Type[Any] = self.fixture_activation.resolve_class("CanaryTool", CANARY_MODULE)
             self.assertEqual(resolved_class.__name__, "CanaryTool")
 
+    def test_default_mode_resolves_tool_whose_module_shares_another_module_name(self) -> None:
+        """
+        Test that with the flag off, a ref whose module name is also a standard-library module
+        without that class goes on to resolve under AGENT_TOOL_PATH.
+        """
+        with patch.dict(os.environ):
+            os.environ.pop("AGENT_TOOL_PATH_ONLY", None)
+            resolved_class: Type[Any] = self.fixture_activation.resolve_class("Calculator", "math")
+            self.assertEqual(resolved_class.__module__, f"{FIRST_AGENT_TOOL_PATH_PACKAGE}.my_network.math")
+
+    def test_tool_path_only_resolves_tool_whose_module_shares_another_module_name(self) -> None:
+        """
+        Test that strict mode resolves the same ref to the same class as the default mode.
+        """
+        with patch.dict(os.environ, {"AGENT_TOOL_PATH_ONLY": "true"}):
+            resolved_class: Type[Any] = self.fixture_activation.resolve_class("Calculator", "math")
+            self.assertEqual(resolved_class.__module__, f"{FIRST_AGENT_TOOL_PATH_PACKAGE}.my_network.math")
+
+    def test_default_mode_reports_class_missing_from_module_sharing_another_name(self) -> None:
+        """
+        Test that with the flag off, a class that neither the standard-library module
+        nor AGENT_TOOL_PATH has still fails with the usual error.
+        """
+        with patch.dict(os.environ):
+            os.environ.pop("AGENT_TOOL_PATH_ONLY", None)
+            with self.assertRaises(ValueError) as raised_error:
+                self.fixture_activation.resolve_class("MissingTool", "math")
+
+        expected_lines: List[str] = [
+            'Could not find class "MissingTool"',
+            'in module "math"',
+        ]
+        self.assertEqual(self.first_lines(str(raised_error.exception), 2), expected_lines)
+
     def test_tool_path_only_blocks_fully_qualified_ref_without_importing(self) -> None:
         """
         Test that strict mode rejects a fully-qualified ref outside AGENT_TOOL_PATH
