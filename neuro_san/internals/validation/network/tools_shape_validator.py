@@ -122,9 +122,11 @@ class ToolsShapeValidator(AbstractNetworkValidator):
         """
         errors: List[str] = []
         url: Any = entry.get("url")
-        if not isinstance(url, str) or len(url) == 0:
+        if not isinstance(url, str):
             errors.append(f"{agent_name} 'tools[{index}]' is an MCP server entry, so it needs a 'url' string,"
                           f" got {type(url).__name__}.")
+        elif len(url) == 0:
+            errors.append(f"{agent_name} 'tools[{index}]' is an MCP server entry, so its 'url' must not be empty.")
 
         allowed: Any = entry.get("tools")
         if allowed is None:
@@ -136,6 +138,12 @@ class ToolsShapeValidator(AbstractNetworkValidator):
         errors.extend(ToolsShapeValidator.check_element_types(
             allowed, str, "str (tool name)", agent_name, f"tools[{index}].tools",
         ))
+        position: int = 0
+        name: Any = None
+        # The MCP adapter sets an empty name aside, so it can never select a tool
+        for position, name in enumerate(allowed):
+            if name == "":
+                errors.append(f"{agent_name} 'tools[{index}].tools[{position}]' must not be an empty tool name.")
         return errors
 
     def warn_about_unknown_mcp_keys(self, agent_name: str, agent: Dict[str, Any]) -> None:
@@ -160,8 +168,9 @@ class ToolsShapeValidator(AbstractNetworkValidator):
                 if key not in self.MCP_ENTRY_KEYS:
                     unknown_keys.append(str(key))
             if len(unknown_keys) > 0:
-                self.logger.warning("%s 'tools[%d]' has %s, which neuro-san ignores: an MCP server entry takes only"
-                                    " 'url' and 'tools'.", agent_name, index, sorted(unknown_keys))
+                self.logger.warning("Agent network %s: %s 'tools[%d]' has %s, which neuro-san ignores: an MCP server"
+                                    " entry takes only 'url' and 'tools'.", self.network_name, agent_name, index,
+                                    sorted(unknown_keys))
 
     @staticmethod
     def validate_args_tools(agent_name: str, agent: Dict[str, Any]) -> List[str]:

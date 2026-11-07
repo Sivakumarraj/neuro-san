@@ -104,8 +104,9 @@ class McpToolCreator(ToolCreator):
         server_url: str = tool_name
         if not isinstance(server_url, str) or len(server_url) == 0:
             # Say what is wrong with the entry, rather than calling the URL None unreachable.
-            message: str = (f"{self.agent_location}: an MCP server entry in the tools list has no 'url', so it is "
-                            "skipped. Add the server's URL to the entry in the agent's hocon file.")
+            message: str = (f"{self.agent_location}: an MCP server entry in the tools list has no usable 'url' "
+                            f"(got {server_url!r}), so it is skipped. Set the entry's 'url' to the server's URL "
+                            "in the agent's hocon file.")
             await self.report_tool_exclusion(message)
             return None
 

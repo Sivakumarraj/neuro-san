@@ -215,7 +215,7 @@ class TestMcpToolCreator(IsolatedAsyncioTestCase):
         creator.journal.write_message.assert_awaited_once()
         reported: AgentMessage = creator.journal.write_message.await_args.args[0]
         self.assertTrue(reported.content.startswith(f"{self.AGENT_LOCATION}: "), reported.content)
-        self.assertIn("has no 'url'", reported.content)
+        self.assertIn("has no usable 'url' (got None)", reported.content)
 
     @patch(ADAPTER_PATH)
     async def test_unreachable_server_is_reported_and_yields_none(self, mock_adapter_class: MagicMock) -> None:
