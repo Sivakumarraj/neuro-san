@@ -163,16 +163,131 @@ class TestConnectivityReporter(TestCase):
 
     def test_assemble_tool_list_dict_element_does_not_crash(self):
         """
-        Tests that a dict element in `tools` (e.g., an inline MCP server
-        config) is filtered out instead of raising TypeError: unhashable
-        type: 'dict' when added to the dedup set. Other string entries are
-        retained.
+        Tests that a dict element in `tools` with no url is filtered out
+        instead of raising TypeError: unhashable type: 'dict' when added to
+        the dedup set. Other string entries are retained.
         """
         agent_spec: Dict[str, Any] = {
             "tools": ["agent_a", {"server": "mcp_server"}, "agent_b"],
         }
         tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
         self.assertEqual(tools, ["agent_a", "agent_b"])
+
+    def test_assemble_tool_list_expands_filtered_dict_mcp_reference(self):
+        """
+        Tests that a dict-form MCP reference with a tools filter is reported once per
+        tool, as "<url>::<tool>", next to the string references.
+        """
+        agent_spec: Dict[str, Any] = {
+            "name": "front_man",
+            "tools": [
+                "helper",
+                "https://example.com/mcp",
+                {"url": "https://example.com/other/mcp", "tools": ["tool_1", "tool_2"]},
+            ],
+        }
+        tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
+        self.assertEqual(tools, [
+            "helper",
+            "https://example.com/mcp",
+            "https://example.com/other/mcp::tool_1",
+            "https://example.com/other/mcp::tool_2",
+        ])
+
+    def test_assemble_tool_list_reports_unfiltered_dict_mcp_reference_as_its_url(self):
+        """
+        Tests that a dict-form MCP reference with no filter, or an empty one, is reported
+        as its url, because at run time it gives the agent every tool on the server.
+        """
+        agent_spec: Dict[str, Any] = {
+            "tools": [
+                {"url": "https://example.com/a/mcp"},
+                {"url": "https://example.com/b/mcp", "tools": []},
+            ],
+        }
+        tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
+        self.assertEqual(tools, ["https://example.com/a/mcp", "https://example.com/b/mcp"])
+
+    def test_assemble_tool_list_dedups_string_and_dict_references_to_one_server(self):
+        """
+        Tests that a string reference and an unfiltered dict reference to the same server,
+        or the same filtered tool granted twice, are each reported once.
+        """
+        agent_spec: Dict[str, Any] = {
+            "tools": [
+                "https://example.com/mcp",
+                {"url": "https://example.com/mcp"},
+                {"url": "https://example.com/other/mcp", "tools": ["tool_1"]},
+            ],
+            "args": {"tools": [{"url": "https://example.com/other/mcp", "tools": ["tool_1"]}]},
+        }
+        tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
+        self.assertEqual(tools, ["https://example.com/mcp", "https://example.com/other/mcp::tool_1"])
+
+    def test_assemble_tool_list_treats_malformed_filter_as_no_filter(self):
+        """
+        Tests that a tools filter that is not a list, such as a bare string, is treated as
+        no filter rather than iterated character by character, and that non-string names
+        in a filter are skipped.
+        """
+        agent_spec: Dict[str, Any] = {
+            "tools": [
+                {"url": "https://example.com/a/mcp", "tools": "tool_1"},
+                {"url": "https://example.com/b/mcp", "tools": [3, "tool_1", None]},
+                {"url": "https://example.com/c/mcp", "tools": [3]},
+            ],
+        }
+        tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
+        self.assertEqual(tools, [
+            "https://example.com/a/mcp",
+            "https://example.com/b/mcp::tool_1",
+            "https://example.com/c/mcp",
+        ])
+
+    def test_dict_mcp_references_appear_in_network_connectivity(self) -> None:
+        """
+        Tests that the front man's reported tools include its dict-form MCP references.
+        A path-form id is reported as its own external agent node, as a string MCP url is;
+        a host-only url has no path, so it gets no node of its own.
+        """
+        config: Dict[str, Any] = {
+            "tools": [
+                {
+                    "name": "front_man",
+                    "instructions": "test",
+                    "tools": [
+                        "helper",
+                        {"url": "https://example.com/other/mcp", "tools": ["tool_1"]},
+                        {"url": "https://mcp.example.com"},
+                    ],
+                },
+                {"name": "helper", "function": {"description": "helps"}, "instructions": "help"},
+            ]
+        }
+        agent_network: AgentNetwork = AgentNetwork(config, "dict_mcp_network")
+
+        # The reporter's self-built factory reads AGENT_TOOLBOX_INFO_FILE at
+        # construction. Keep the test hermetic against the environment.
+        with patch.dict(os.environ):
+            os.environ.pop("AGENT_TOOLBOX_INFO_FILE", None)
+            reporter = ConnectivityReporter(agent_network)
+            messages: List[Dict[str, Any]] = reporter.report_network_connectivity()
+
+        front_man: Dict[str, Any] = messages[0]
+        self.assertEqual(front_man.get("origin"), "front_man")
+        self.assertEqual(front_man.get("tools"), [
+            "helper",
+            "https://example.com/other/mcp::tool_1",
+            "https://mcp.example.com",
+        ])
+
+        display_as_by_origin: Dict[str, str] = {}
+        message: Dict[str, Any] = None
+        # Index the reported nodes by name
+        for message in messages:
+            display_as_by_origin[message.get("origin")] = message.get("display_as")
+        self.assertEqual(display_as_by_origin.get("https://example.com/other/mcp::tool_1"), "external_agent")
+        self.assertNotIn("https://mcp.example.com", display_as_by_origin)
 
     def test_malformed_url_does_not_crash_network_connectivity(self) -> None:
         """
@@ -181,8 +296,7 @@ class TestConnectivityReporter(TestCase):
         the whole connectivity report. UrlNetworkValidator accepts any
         http(s)-prefixed string, so such a url can reach the reporter, where
         the recursion used to die with ValueError inside urlparse via
-        is_external_agent. The string form is used here because
-        assemble_tool_list drops dict-form (MCP) entries before recursing.
+        is_external_agent.
         """
         config: Dict[str, Any] = {
             "tools": [

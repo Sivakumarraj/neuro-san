@@ -57,7 +57,15 @@ class ConnectivityReporter:
     *   External agents are reported but with an empty tool list.
         No effort to discover their internal connectivity is attempted.
         Maybe someday.
+    *   A dictionary-form MCP reference is reported by its url, once per tool in its
+        "tools" filter as "<url>::<tool>", or as the url alone when it has no filter.
+        See expand_tool_reference().
     """
+
+    # Joins an MCP server url and one tool name into a single id. MCP tool names should be
+    # ASCII letters, digits, "_", "-" and ".", so "::" cannot be part of a conforming name,
+    # and clients can split an id with rsplit("::", 1), even for an IPv6 host.
+    MCP_TOOL_ID_SEPARATOR: str = "::"
 
     def __init__(self, inspector: AgentNetworkInspector, toolbox_factory: ContextTypeToolboxFactory = None):
         """
@@ -199,9 +207,7 @@ class ConnectivityReporter:
             return tool_list
 
         # Combine the traditional `tools` field with `args.tools` (the coded-tool
-        # convention). coerce_* keep the result tolerant to malformed shapes;
-        # remove_dictionary_tools drops non-string entries (e.g., inline MCP
-        # configs) so the dedup set sees only agent-name strings.
+        # convention). coerce_* keep the result tolerant to malformed shapes.
         coerced_tools: List[Any] = AbstractNetworkValidator.coerce_tools(agent_spec)
         coerced_args_tools: List[Any] = AbstractNetworkValidator.coerce_args_tools(agent_spec)
         combined: List[Any] = coerced_tools + coerced_args_tools
@@ -209,12 +215,56 @@ class ConnectivityReporter:
         # Keep a set of the combined sources of tools,
         # so connectivity only gets reported once.
         tool_set: Set[str] = set()
-        for tool in AbstractNetworkValidator.remove_dictionary_tools(combined):
-            if tool not in tool_set:
-                tool_set.add(tool)
-                tool_list.append(tool)
+        tool: Any = None
+        # Each reference becomes one or more string ids, so the dedup set never sees a dict.
+        for tool in combined:
+            entry: str = None
+            # Each id is reported once, in the order it was first seen.
+            for entry in ConnectivityReporter.expand_tool_reference(tool):
+                if entry not in tool_set:
+                    tool_set.add(entry)
+                    tool_list.append(entry)
 
         return tool_list
+
+    @staticmethod
+    def expand_tool_reference(tool: Any) -> List[str]:
+        """
+        Turn one entry of an agent's tools list into the ids the connectivity report lists for it.
+
+        A string is reported as given. A dictionary-form MCP reference is reported by its url:
+        once per tool in its "tools" filter, as "<url>::<tool>", or as the url alone when it has no
+        filter, which at run time means every tool on the server. Anything else is not reported.
+
+        :param tool: One entry of an agent's tools list
+        :return: The ids to report for the entry, possibly none
+        """
+        if isinstance(tool, str):
+            return [tool]
+
+        expanded: List[str] = []
+        if not isinstance(tool, dict) or not isinstance(tool.get("url"), str):
+            # Not a reference that can be reported, such as a dict with no url.
+            return expanded
+
+        url: str = tool.get("url")
+        filtered: Any = tool.get("tools")
+        if not isinstance(filtered, list):
+            # Treat a malformed filter, such as a bare string, as no filter,
+            # rather than iterating a string character by character.
+            filtered = []
+
+        name: Any = None
+        # Each tool name in the filter is its own node for the client to draw.
+        for name in filtered:
+            if isinstance(name, str):
+                expanded.append(f"{url}{ConnectivityReporter.MCP_TOOL_ID_SEPARATOR}{name}")
+
+        if len(expanded) == 0:
+            # No usable filter: the whole server is one node.
+            expanded.append(url)
+
+        return expanded
 
     def determine_display_as(self, agent_spec: Dict[str, Any]) -> str:
         """
