@@ -200,13 +200,36 @@ class TestLangChainMcpAdapter(IsolatedAsyncioTestCase):
         mock_client: MagicMock = mock_client_class.return_value
         mock_client.get_tools = AsyncMock(return_value=self._make_tools(["a", "b", "c"]))
 
-        with self.assertLogs(self.ADAPTER_LOGGER, level=WARNING):
+        with self.assertLogs(self.ADAPTER_LOGGER, level=WARNING) as captured:
             tools: List[StructuredTool] = await self.adapter.get_mcp_tools(self.SERVER_URL, allowed_tools=["a", "c"])
+        output: str = "\n".join(captured.output)
 
         self.assertEqual(len(tools), 1)
         self.assertEqual(tools[0].name, "a")
         self.assertEqual(self.adapter.get_unmatched_allowed_tools(), ["c"])
         self.assertEqual(self.adapter.get_dropped_tool_count(), 1)
+        # The unmatched warning says the cap may be why, instead of only suggesting a typo.
+        self.assertIn("match none of the first 2 tools the server listed", output)
+        self.assertNotIn("match no tool on the server", output)
+
+    @patch('neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter.MultiServerMCPClient')
+    async def test_dropped_tool_count_resets_when_listing_fails(self, mock_client_class: MagicMock) -> None:
+        """
+        A call whose listing fails reports no dropped tools, whatever the call before it dropped.
+
+        :param mock_client_class: Patched MultiServerMCPClient class.
+        """
+        os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = "1"
+        mock_client: MagicMock = mock_client_class.return_value
+        mock_client.get_tools = AsyncMock(return_value=self._make_tools(["a", "b"]))
+        with self.assertLogs(self.ADAPTER_LOGGER, level=WARNING):
+            await self.adapter.get_mcp_tools(self.SERVER_URL)
+        self.assertEqual(self.adapter.get_dropped_tool_count(), 1)
+
+        mock_client.get_tools = AsyncMock(side_effect=RuntimeError("server down"))
+        with self.assertRaises(RuntimeError):
+            await self.adapter.get_mcp_tools(self.SERVER_URL)
+        self.assertEqual(self.adapter.get_dropped_tool_count(), 0)
 
     @patch('neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter.MultiServerMCPClient')
     async def test_no_listing_cap_unless_a_positive_integer_is_set(self, mock_client_class: MagicMock) -> None:

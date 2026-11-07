@@ -150,6 +150,8 @@ class LangChainMcpAdapter:
         :return: A list of LangChain BaseTool instances retrieved from the MCP server,
                  with provider-safe names.
         """
+        # Reset before anything can raise, so a failed call never reports the last call's count.
+        self.dropped_tool_count = 0
         if self._mcp_servers_info is None:
             self._load_mcp_servers_info()
 
@@ -232,7 +234,6 @@ class LangChainMcpAdapter:
         :param mcp_tools: The tools as the server listed them.
         :return: The listed tools, or only the first MAX_AGENTS_FROM_EXTERNAL_SERVER of them.
         """
-        self.dropped_tool_count = 0
         max_tools: int = ExternalListingLimit.get_max_agents()
         if max_tools <= 0 or len(mcp_tools) <= max_tools:
             return mcp_tools
@@ -303,7 +304,16 @@ class LangChainMcpAdapter:
         # not left guessing why a tool never appeared.
         unmatched: List[str] = self.tool_name_policy.find_unmatched(usable_entries, original_names)
         self.unmatched_allowed_tools = unmatched
-        if unmatched:
+        if unmatched and self.dropped_tool_count > 0:
+            # The entries may name tools the server listed after the cap, so a typo is not the only cause.
+            self.logger.warning(
+                "%sMCP server %s: allow-list entries %s match none of the first %d tools the server listed, "
+                "which are all that %s lets neuro-san consider: %s. Raise %s if those tools exist, or else "
+                "change the entry in %s.",
+                self.agent_location_prefix, server_url, unmatched, len(original_names),
+                ExternalListingLimit.MAX_AGENTS_ENV_VAR, original_names, ExternalListingLimit.MAX_AGENTS_ENV_VAR,
+                allow_list_source)
+        elif unmatched:
             self.logger.warning(
                 "%sMCP server %s: allow-list entries %s match no tool on the server. Available tools: %s. "
                 "Change the entry in %s to one of those names; the server's spelling and the "

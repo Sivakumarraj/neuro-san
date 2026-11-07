@@ -102,25 +102,30 @@ class McpToolCreator(ToolCreator):
             await self.report_tool_exclusion(message)
             return None
 
-        # The adapter keeps at most MAX_AGENTS_FROM_EXTERNAL_SERVER of the tools the server
-        # listed. Say so before any allow-list report below, because an allowed tool after
-        # the cap is reported there as not found.
-        dropped_count: int = mcp_adapter.get_dropped_tool_count()
-        if dropped_count > 0:
-            message = (f"{self.agent_location}: {server_url} listed more tools than "
-                       f"{ExternalListingLimit.MAX_AGENTS_ENV_VAR} allows, so its last {dropped_count} were not "
-                       "considered. A tool among them is not available, even if the allow list names it.")
-            await self.journal.write_message(AgentMessage(content=message))
-            self.logger.info(message)
-
         # The adapter matches allow-list entries against the names the server
         # advertised, in either spelling, and then renames tools for the LLM
         # ("deep/math_guy" is exposed as "deep__math_guy"). Comparing the entries
         # with the exposed names here would report a tool that was found, so ask
         # the adapter which entries really matched nothing.
         invalid_names: List[str] = mcp_adapter.get_unmatched_allowed_tools()
-        if invalid_names:
+
+        # The adapter also keeps at most MAX_AGENTS_FROM_EXTERNAL_SERVER of the tools the
+        # server listed. That only matters to this agent when it wanted every tool, or when
+        # an entry it allowed was not among the ones kept, so only then is it reported.
+        dropped_count: int = mcp_adapter.get_dropped_tool_count()
+        limit_name: str = ExternalListingLimit.MAX_AGENTS_ENV_VAR
+        if dropped_count > 0 and invalid_names:
+            message = (f"{self.agent_location}: the following tools cannot be found among the tools {server_url} "
+                       f"listed before {limit_name} cut its last {dropped_count}: {invalid_names}")
+        elif dropped_count > 0 and not self.allowed_tools:
+            message = (f"{self.agent_location}: {server_url} listed more tools than {limit_name} allows, "
+                       f"so its last {dropped_count} are not available.")
+        elif invalid_names:
             message = f"{self.agent_location}: the following tools cannot be found in {server_url}: {invalid_names}"
+        else:
+            message = None
+
+        if message is not None:
             agent_message = AgentMessage(content=message)
             await self.journal.write_message(agent_message)
             self.logger.info(message)

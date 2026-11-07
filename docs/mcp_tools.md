@@ -95,8 +95,11 @@ try strict mode and make the model fill in every optional argument, so the `open
 
 Set the `MAX_AGENTS_FROM_EXTERNAL_SERVER` environment variable on the server to a positive integer to take
 at most that many tools from each MCP server's listing, in the order the server lists them. The limit applies
-before the `tools` allow list, so an allowed tool after it is not available. The server logs a warning and
-writes a journal message when tools are dropped. Unset, `0` (the default) or a negative value means no limit.
+before any allow list, whether it is the `tools` list in the agent's hocon file or the one in the MCP servers
+info file, so an allowed tool after it is not available. The server logs a warning when tools are dropped. It
+also writes a journal message when that costs the agent a tool: when there is no allow list, or when an allowed
+tool was not among those kept. Unset, `0` (the default) or a negative value means no limit. A value that is not
+an integer is ignored with a warning.
 
 ## Authentication
 

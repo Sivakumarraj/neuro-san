@@ -191,10 +191,11 @@ class TestMcpToolCreator(IsolatedAsyncioTestCase):
         self.assertIn("nope", reported.content)
 
     @patch(ADAPTER_PATH)
-    async def test_tools_dropped_by_the_listing_cap_are_reported_first(self, mock_adapter_class: MagicMock) -> None:
+    async def test_unmatched_entries_under_a_listing_cap_say_the_cap_may_be_why(
+            self, mock_adapter_class: MagicMock) -> None:
         """
-        When MAX_AGENTS_FROM_EXTERNAL_SERVER cut the server's listing, the journal says so,
-        and says it before the allow-list report that the cut can cause.
+        When MAX_AGENTS_FROM_EXTERNAL_SERVER cut the server's listing and an allowed entry was
+        not found, one journal message names the entry and says the cap may have cut it.
 
         :param mock_adapter_class: Patched LangChainMcpAdapter class.
         """
@@ -205,13 +206,49 @@ class TestMcpToolCreator(IsolatedAsyncioTestCase):
         result: List[BaseTool] = await creator.create_tool(self.SERVER_URL)
 
         self.assertEqual(result, [tool])
-        self.assertEqual(creator.journal.write_message.await_count, 2)
-        first: AgentMessage = creator.journal.write_message.await_args_list[0].args[0]
-        second: AgentMessage = creator.journal.write_message.await_args_list[1].args[0]
-        self.assertTrue(first.content.startswith(f"{self.AGENT_LOCATION}: "), first.content)
-        self.assertIn("MAX_AGENTS_FROM_EXTERNAL_SERVER", first.content)
-        self.assertIn("last 3", first.content)
-        self.assertIn("cannot be found", second.content)
+        creator.journal.write_message.assert_awaited_once()
+        reported: AgentMessage = creator.journal.write_message.await_args.args[0]
+        self.assertTrue(reported.content.startswith(f"{self.AGENT_LOCATION}: "), reported.content)
+        self.assertIn("cannot be found", reported.content)
+        self.assertIn("tool_9", reported.content)
+        self.assertIn("MAX_AGENTS_FROM_EXTERNAL_SERVER", reported.content)
+        self.assertIn("last 3", reported.content)
+
+    @patch(ADAPTER_PATH)
+    async def test_listing_cap_is_not_reported_when_every_allowed_tool_was_kept(
+            self, mock_adapter_class: MagicMock) -> None:
+        """
+        When the cap cut the listing but every allowed tool was among those kept, the agent
+        lost nothing, so nothing is written to the journal.
+
+        :param mock_adapter_class: Patched LangChainMcpAdapter class.
+        """
+        tool: MagicMock = self.make_named_tool("tool_1")
+        self.prepare_adapter(mock_adapter_class, [tool], dropped=3)
+        creator: McpToolCreator = self.make_creator(allowed_tools=["tool_1"])
+
+        await creator.create_tool(self.SERVER_URL)
+
+        creator.journal.write_message.assert_not_awaited()
+
+    @patch(ADAPTER_PATH)
+    async def test_listing_cap_is_reported_when_the_agent_wanted_every_tool(
+            self, mock_adapter_class: MagicMock) -> None:
+        """
+        With no allow list the agent wanted every tool, so the cut tools are reported.
+
+        :param mock_adapter_class: Patched LangChainMcpAdapter class.
+        """
+        tool: MagicMock = self.make_named_tool("tool_1")
+        self.prepare_adapter(mock_adapter_class, [tool], dropped=3)
+        creator: McpToolCreator = self.make_creator()
+
+        await creator.create_tool(self.SERVER_URL)
+
+        creator.journal.write_message.assert_awaited_once()
+        reported: AgentMessage = creator.journal.write_message.await_args.args[0]
+        self.assertIn("MAX_AGENTS_FROM_EXTERNAL_SERVER", reported.content)
+        self.assertIn("last 3 are not available", reported.content)
 
     @patch(ADAPTER_PATH)
     async def test_unreachable_server_is_reported_and_yields_none(self, mock_adapter_class: MagicMock) -> None:
