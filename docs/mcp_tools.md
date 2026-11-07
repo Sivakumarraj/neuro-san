@@ -60,6 +60,9 @@ MCP servers can be configured in two formats:
     ]
     ```
 
+    - `url` is required, and `tools`, if given, must be a list of tool names. Validation reports an
+    entry without a `url` when the network loads. It also warns about any other key, since neuro-san
+    ignores it: a misspelled `tools` would otherwise expose every tool on the server.
     - `tools` key filters which specific tools from the MCP server are made available.
     If omitted, all tools on the server will be accessible.
     - An entry that matches no tool on the server is reported to the client, and the server log also

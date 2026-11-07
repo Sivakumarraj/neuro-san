@@ -17,6 +17,8 @@
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import Tuple
+from typing import Union
 
 from typing_extensions import override
 
@@ -70,6 +72,24 @@ class McpToolCreator(ToolCreator):
         self.exposed_tool_names: ExposedToolNames = exposed_tool_names
         self.allowed_tools: List[str] = allowed_tools
 
+    @staticmethod
+    def split_reference(reference: Union[str, Dict[str, Any]]) -> Tuple[Any, Any]:
+        """
+        Split an MCP reference from an agent's tools list into its server URL and allow list.
+
+        An MCP reference is the server URL alone, or a dictionary with the URL under "url"
+        and an optional allow list of tool names under "tools". ToolsShapeValidator checks
+        the dictionary's shape when the network loads; create_tool() still copes with a
+        missing URL, for networks that were not validated.
+
+        :param reference: The entry of the agent's tools list
+        :return: A tuple of (server URL, allow list). The allow list is None for a reference
+                 by URL alone. Either can be None, or the wrong type, for a malformed dictionary.
+        """
+        if isinstance(reference, dict):
+            return reference.get("url"), reference.get("tools")
+        return reference, None
+
     @override
     async def create_tool(self, tool_name: str) -> List[BaseTool]:
         """
@@ -82,6 +102,13 @@ class McpToolCreator(ToolCreator):
         :return: A list of MCP tools as base tools, or None when the server was unreachable
         """
         server_url: str = tool_name
+        if not isinstance(server_url, str) or len(server_url) == 0:
+            # Say what is wrong with the entry, rather than calling the URL None unreachable.
+            message: str = (f"{self.agent_location}: an MCP server entry in the tools list has no 'url', so it is "
+                            "skipped. Add the server's URL to the entry in the agent's hocon file.")
+            await self.report_tool_exclusion(message)
+            return None
+
         # Get HTTP headers from sly_data if available
         http_headers: Dict[str, Any] = self.tool_caller.get_sly_data().get("http_headers", {})
         # Get specific headers for the MCP server if available

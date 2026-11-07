@@ -71,10 +71,61 @@ class TestToolsShapeValidator(TestCase, AbstractNetworkValidatorTest):
         validator: DictionaryValidator = self.create_validator()
 
         config: Dict[str, Any] = self.restore("hello_world.hocon")
-        config["tools"][0]["tools"] = ["synonymizer", {"server": "mcp_server"}]
+        config["tools"][0]["tools"] = ["synonymizer", {"url": "https://example.com/mcp", "tools": ["tool_1"]}]
 
         errors: List[str] = validator.validate(config)
         self.assertEqual(0, len(errors))
+
+    def test_mcp_entry_without_url_is_an_error(self) -> None:
+        """
+        Tests that a dict element without a url string is reported when the network loads,
+        rather than reaching the MCP adapter as the URL None.
+        """
+        validator: DictionaryValidator = self.create_validator()
+        bad_entries: List[Dict[str, Any]] = [{"server": "mcp_server"}, {"url": 42}, {"url": ""}]
+
+        entry: Dict[str, Any] = None
+        # Each malformed entry is checked on its own copy of the network
+        for entry in bad_entries:
+            with self.subTest(entry=str(entry)):
+                config: Dict[str, Any] = self.restore("hello_world.hocon")
+                config["tools"][0]["tools"] = ["synonymizer", entry]
+                errors: List[str] = validator.validate(config)
+                self.assertEqual(1, len(errors))
+                self.assertIn("needs a 'url' string", errors[0])
+
+    def test_mcp_entry_tools_must_be_a_list_of_names(self) -> None:
+        """
+        Tests that an MCP entry's tools allow list must be a list of tool names.
+        """
+        validator: DictionaryValidator = self.create_validator()
+
+        config: Dict[str, Any] = self.restore("hello_world.hocon")
+        config["tools"][0]["tools"] = [{"url": "https://example.com/mcp", "tools": "tool_1"}]
+        errors: List[str] = validator.validate(config)
+        self.assertEqual(1, len(errors))
+        self.assertIn("'tools[0].tools' must be a list of tool names", errors[0])
+
+        config = self.restore("hello_world.hocon")
+        config["tools"][0]["tools"] = [{"url": "https://example.com/mcp", "tools": ["tool_1", 7]}]
+        errors = validator.validate(config)
+        self.assertEqual(1, len(errors))
+        self.assertIn("'tools[0].tools[1]' must be a str (tool name)", errors[0])
+
+    def test_mcp_entry_unknown_key_is_warned_about(self) -> None:
+        """
+        Tests that a misspelled key in an MCP entry, which would drop the allow list,
+        is warned about without failing validation.
+        """
+        validator: DictionaryValidator = self.create_validator()
+
+        config: Dict[str, Any] = self.restore("hello_world.hocon")
+        config["tools"][0]["tools"] = [{"url": "https://example.com/mcp", "tool": ["tool_1"]}]
+        with self.assertLogs("ToolsShapeValidator", level="WARNING") as captured:
+            errors: List[str] = validator.validate(config)
+
+        self.assertEqual(0, len(errors))
+        self.assertIn("['tool'], which neuro-san ignores", "\n".join(captured.output))
 
     def test_args_tools_dict_is_valid(self):
         """

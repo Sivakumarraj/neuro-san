@@ -188,6 +188,35 @@ class TestMcpToolCreator(IsolatedAsyncioTestCase):
         self.assertIn("cannot be found", reported.content)
         self.assertIn("nope", reported.content)
 
+    def test_split_reference_reads_url_and_allow_list(self) -> None:
+        """
+        A dictionary reference splits into its "url" and "tools"; a URL alone has no allow list.
+        """
+        self.assertEqual(McpToolCreator.split_reference({"url": self.SERVER_URL, "tools": ["tool_1"]}),
+                         (self.SERVER_URL, ["tool_1"]))
+        self.assertEqual(McpToolCreator.split_reference({"url": self.SERVER_URL}), (self.SERVER_URL, None))
+        self.assertEqual(McpToolCreator.split_reference(self.SERVER_URL), (self.SERVER_URL, None))
+        self.assertEqual(McpToolCreator.split_reference({"tools": ["tool_1"]}), (None, ["tool_1"]))
+
+    @patch(ADAPTER_PATH)
+    async def test_entry_without_url_is_reported_and_skipped(self, mock_adapter_class: MagicMock) -> None:
+        """
+        An entry with no URL is reported as such, naming the agent, and never reaches the
+        adapter, which would only call the URL None unreachable.
+
+        :param mock_adapter_class: Patched LangChainMcpAdapter class.
+        """
+        creator: McpToolCreator = self.make_creator(allowed_tools=["tool_1"])
+
+        result: List[BaseTool] = await creator.create_tool(None)
+
+        self.assertIsNone(result)
+        mock_adapter_class.assert_not_called()
+        creator.journal.write_message.assert_awaited_once()
+        reported: AgentMessage = creator.journal.write_message.await_args.args[0]
+        self.assertTrue(reported.content.startswith(f"{self.AGENT_LOCATION}: "), reported.content)
+        self.assertIn("has no 'url'", reported.content)
+
     @patch(ADAPTER_PATH)
     async def test_unreachable_server_is_reported_and_yields_none(self, mock_adapter_class: MagicMock) -> None:
         """

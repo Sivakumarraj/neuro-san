@@ -31,7 +31,9 @@ class ToolsShapeValidator(AbstractNetworkValidator):
     """
     AbstractNetworkValidator that checks the shape of fields that downstream
     structural validators traverse:
-      - `tools` must be a list whose elements are each a str or dict.
+      - `tools` must be a list whose elements are each a str or dict. A dict is an MCP
+        server entry: it needs a string `url`, may have a `tools` list of tool names,
+        and any other key is warned about, since neuro-san ignores it.
       - `args.tools`, when present, must be either a dict (label -> agent name,
         the coded-tool convention) or a list of names.
 
@@ -45,6 +47,10 @@ class ToolsShapeValidator(AbstractNetworkValidator):
     (returning an empty list when the value is malformed) for use by validators
     that traverse the connectivity graph.
     """
+
+    # The keys neuro-san reads from an MCP server entry in an agent's tools list.
+    # See BaseToolFactory.create_external_tool() and McpToolCreator.split_reference().
+    MCP_ENTRY_KEYS: Tuple[str, ...] = ("url", "tools")
 
     def __init__(self, network_name: str = None):
         """
@@ -69,6 +75,7 @@ class ToolsShapeValidator(AbstractNetworkValidator):
         for agent_name, agent in name_to_spec.items():
             errors.extend(self.validate_tools(agent_name, agent))
             errors.extend(self.validate_args_tools(agent_name, agent))
+            self.warn_about_unknown_mcp_keys(agent_name, agent)
 
         if len(errors) > 0:
             # Only warn if there is a problem
@@ -91,9 +98,70 @@ class ToolsShapeValidator(AbstractNetworkValidator):
         if not isinstance(tools, list):
             return [f"{agent_name} 'tools' must be a list, got {type(tools).__name__}."]
         # Each element of tools must be a str (agent name) or dict (MCP server).
-        return ToolsShapeValidator.check_element_types(
+        errors: List[str] = ToolsShapeValidator.check_element_types(
             tools, (str, dict), "str or dict", agent_name, "tools",
         )
+        index: int = 0
+        entry: Any = None
+        # Each dict element is an MCP server entry, with a shape of its own
+        for index, entry in enumerate(tools):
+            if isinstance(entry, dict):
+                errors.extend(ToolsShapeValidator.validate_mcp_entry(agent_name, index, entry))
+        return errors
+
+    @staticmethod
+    def validate_mcp_entry(agent_name: str, index: int, entry: Dict[str, Any]) -> List[str]:
+        """
+        Validate one MCP server entry of an agent's tools list: a string `url`, and,
+        if present, a `tools` allow list of tool names.
+
+        :param agent_name: The name of the agent being validated
+        :param index: The position of the entry in the agent's tools list
+        :param entry: The MCP server entry
+        :return: A list of error messages
+        """
+        errors: List[str] = []
+        url: Any = entry.get("url")
+        if not isinstance(url, str) or len(url) == 0:
+            errors.append(f"{agent_name} 'tools[{index}]' is an MCP server entry, so it needs a 'url' string,"
+                          f" got {type(url).__name__}.")
+
+        allowed: Any = entry.get("tools")
+        if allowed is None:
+            return errors
+        if not isinstance(allowed, list):
+            errors.append(f"{agent_name} 'tools[{index}].tools' must be a list of tool names,"
+                          f" got {type(allowed).__name__}.")
+            return errors
+        errors.extend(ToolsShapeValidator.check_element_types(
+            allowed, str, "str (tool name)", agent_name, f"tools[{index}].tools",
+        ))
+        return errors
+
+    def warn_about_unknown_mcp_keys(self, agent_name: str, agent: Dict[str, Any]) -> None:
+        """
+        Warn about keys in an agent's MCP server entries that neuro-san ignores. They are
+        usually typos, and a misspelled "tools" drops the allow list, exposing every tool
+        on the server.
+
+        :param agent_name: The name of the agent being validated
+        :param agent: The agent spec dictionary
+        """
+        index: int = 0
+        entry: Any = None
+        # Only dict elements are MCP server entries
+        for index, entry in enumerate(self.coerce_tools(agent)):
+            if not isinstance(entry, dict):
+                continue
+            unknown_keys: List[str] = []
+            key: Any = None
+            # Collect the keys neuro-san does not read
+            for key in entry.keys():
+                if key not in self.MCP_ENTRY_KEYS:
+                    unknown_keys.append(str(key))
+            if len(unknown_keys) > 0:
+                self.logger.warning("%s 'tools[%d]' has %s, which neuro-san ignores: an MCP server entry takes only"
+                                    " 'url' and 'tools'.", agent_name, index, sorted(unknown_keys))
 
     @staticmethod
     def validate_args_tools(agent_name: str, agent: Dict[str, Any]) -> List[str]:

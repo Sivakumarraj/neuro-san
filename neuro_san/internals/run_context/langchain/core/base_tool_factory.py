@@ -143,15 +143,9 @@ class BaseToolFactory:
 
         creator: ToolCreator = None
         if ExternalAgentParsing.is_mcp_tool(name):
-            # An MCP reference is the server URL alone, or a dictionary with the
-            # URL under "url" and an optional allow list of tool names under "tools".
             server_url: str = None
             allowed_tools: List[str] = None
-            if isinstance(name, dict):
-                server_url = name.get("url")
-                allowed_tools = name.get("tools")
-            else:
-                server_url = name
+            server_url, allowed_tools = McpToolCreator.split_reference(name)
             creator = McpToolCreator(self.tool_caller, self.invocation_context, self.journal,
                                      self.agent_location, self.exposed_tool_names, allowed_tools)
             return await creator.create_tool(server_url)
