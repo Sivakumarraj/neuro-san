@@ -21,12 +21,10 @@ from typing import Dict
 from os import environ
 
 from leaf_common.persistence.interface.restorer import Restorer
-from leaf_common.persistence.easy.easy_hocon_persistence import EasyHoconPersistence
-from leaf_common.persistence.easy.easy_json_persistence import EasyJsonPersistence
 from leaf_common.persistence.easy.easy_yaml_persistence import EasyYamlPersistence
 
 from neuro_san import DEPLOY_DIR
-from neuro_san.internals.persistence.hocon_parse_lock import HoconParseLock
+from neuro_san.service.http.logging.logging_config_file_restorer import LoggingConfigFileRestorer
 
 
 class LoggingConfigRestorer(Restorer):
@@ -62,13 +60,10 @@ class LoggingConfigRestorer(Restorer):
         if use_file_reference is None:
             raise ValueError("No logging config file specified")
 
-        if use_file_reference.endswith(".hocon"):
-            # pyhocon parsing mutates process-global pyparsing state and is not
-            # thread-safe. See HoconParseLock.
-            with HoconParseLock():
-                logging_config = EasyHoconPersistence().restore(file_reference=use_file_reference)
-        elif use_file_reference.endswith(".json"):
-            logging_config = EasyJsonPersistence().restore(file_reference=use_file_reference)
+        if use_file_reference.endswith(".hocon") or use_file_reference.endswith(".json"):
+            # Parse as the other config files are, so that quoted keys such as dotted
+            # logger names lose their quotes. See AbstractAsyncConfigRestorer.
+            logging_config = LoggingConfigFileRestorer().restore(file_reference=use_file_reference)
         elif use_file_reference.endswith(".yaml") or use_file_reference.endswith(".yml"):
             logging_config = EasyYamlPersistence().restore(file_reference=use_file_reference)
         else:
