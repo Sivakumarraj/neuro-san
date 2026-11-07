@@ -44,6 +44,8 @@ However, security considerations require us to allow deployments to be more care
 For production: set MAX_AGENTS_FROM_EXTERNAL_SERVER to an integer limit comfortable for your deployment.
 
 * A positive integer keeps at most that many agents from a listing and logs a warning if any are dropped.
+  The server applies the same limit to the tool listings it fetches from MCP servers, and writes a journal
+  message when tools are dropped.
 * Unset, 0 (the default) or a negative value means unlimited.
 * A value that is not an integer is ignored with a warning.
 

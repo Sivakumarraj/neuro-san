@@ -28,8 +28,8 @@ from unittest.mock import patch
 
 from typing_extensions import override
 
+from neuro_san.internals.utils.external_listing_limit import ExternalListingLimit
 from neuro_san.session.mcp_service_agent_session import McpServiceAgentSession
-from neuro_san.session.session_util import SessionUtil
 
 
 class TestMcpServiceAgentSession(TestCase):
@@ -67,7 +67,7 @@ class TestMcpServiceAgentSession(TestCase):
         env_patcher: Any = patch.dict(os.environ)
         env_patcher.start()
         self.addCleanup(env_patcher.stop)
-        os.environ.pop(SessionUtil.MAX_AGENTS_ENV_VAR, None)
+        os.environ.pop(ExternalListingLimit.MAX_AGENTS_ENV_VAR, None)
 
     @staticmethod
     def fake_post(tools: List[Dict[str, Any]], path: str, **kwargs: Any) -> MagicMock:
@@ -313,10 +313,10 @@ class TestMcpServiceAgentSession(TestCase):
         The limit is applied before the search: with MAX_AGENTS_FROM_EXTERNAL_SERVER=1 a network
         listed second is not found, and the truncation is logged as a warning.
         """
-        os.environ[SessionUtil.MAX_AGENTS_ENV_VAR] = "1"
+        os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = "1"
         with self.patch_post(self.LOOKALIKE_TOOL, self.CUSTOM_TOOL):
             session = McpServiceAgentSession(agent_name=self.NETWORK_NAME)
-            with self.assertLogs(SessionUtil.__name__, level="WARNING"):
+            with self.assertLogs(ExternalListingLimit.__name__, level="WARNING"):
                 function_dict: Dict[str, Any] = session.function({})
         self.assertIsNone(function_dict)
         self.assertIsNone(session.advertised_tool_name)

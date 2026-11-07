@@ -622,8 +622,9 @@ ENV AGENT_TOOL_PATH_ONLY="true"
 ENV AGENT_FETCHABLE_TOOL_SCHEMES=""
 
 # Limits the number of agents considered from external servers' listings
-# to avoid exorbitantly long loops in handling them.  Negative values or
-# 0 (the default) means the number of agents listed is unlimited.
+# to avoid exorbitantly long loops in handling them.  This applies to the agents
+# a client session lists and to the tools the server fetches from an MCP server.
+# Negative values or 0 (the default) means the number of agents listed is unlimited.
 ENV MAX_AGENTS_FROM_EXTERNAL_SERVER="0"
 
 #

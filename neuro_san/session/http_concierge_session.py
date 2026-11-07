@@ -23,8 +23,8 @@ from json import loads
 from requests import get as http_get
 
 from neuro_san.interfaces.concierge_session import ConciergeSession
+from neuro_san.internals.utils.external_listing_limit import ExternalListingLimit
 from neuro_san.session.abstract_http_service_agent_session import AbstractHttpServiceAgentSession
-from neuro_san.session.session_util import SessionUtil
 
 
 class HttpConciergeSession(AbstractHttpServiceAgentSession, ConciergeSession):
@@ -51,7 +51,7 @@ class HttpConciergeSession(AbstractHttpServiceAgentSession, ConciergeSession):
             # Potentially limit the number of agents to the value of the MAX_AGENTS_FROM_EXTERNAL_SERVER env var
             empty_list: List[Dict[str, Any]] = []
             agent_infos: List[Dict[str, Any]] = result_dict.get("agents", empty_list)
-            result_dict["agents"] = SessionUtil.limit_agents_list(agent_infos)
+            result_dict["agents"] = ExternalListingLimit.limit_agents_list(agent_infos)
             return result_dict
         except Exception as exc:  # pylint: disable=broad-exception-caught
             raise ValueError(self.help_message(path)) from exc

@@ -29,8 +29,8 @@ from unittest.mock import patch
 from requests import ConnectionError as RequestsConnectionError
 from typing_extensions import override
 
+from neuro_san.internals.utils.external_listing_limit import ExternalListingLimit
 from neuro_san.session.http_concierge_session import HttpConciergeSession
-from neuro_san.session.session_util import SessionUtil
 
 
 class TestHttpConciergeSession(TestCase):
@@ -66,7 +66,7 @@ class TestHttpConciergeSession(TestCase):
         env_patcher: Any = patch.dict(os.environ)
         env_patcher.start()
         self.addCleanup(env_patcher.stop)
-        os.environ.pop(SessionUtil.MAX_AGENTS_ENV_VAR, None)
+        os.environ.pop(ExternalListingLimit.MAX_AGENTS_ENV_VAR, None)
         os.environ["AGENT_SESSION_REQUIRE_HTTPS"] = "false"
 
     @staticmethod
@@ -117,7 +117,7 @@ class TestHttpConciergeSession(TestCase):
         """
         With MAX_AGENTS_FROM_EXTERNAL_SERVER set, only the first N agents the server listed come back.
         """
-        os.environ[SessionUtil.MAX_AGENTS_ENV_VAR] = "2"
+        os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = "2"
         session: HttpConciergeSession = self.make_session()
         with self.patch_get({"agents": self.AGENTS}):
             result: Dict[str, Any] = session.list({})
@@ -127,7 +127,7 @@ class TestHttpConciergeSession(TestCase):
         """
         Limiting the listing does not drop the other keys in the server's response.
         """
-        os.environ[SessionUtil.MAX_AGENTS_ENV_VAR] = "1"
+        os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = "1"
         session: HttpConciergeSession = self.make_session()
         body: Dict[str, Any] = {
             "agents": self.AGENTS,
@@ -152,7 +152,7 @@ class TestHttpConciergeSession(TestCase):
         A non-list "agents" value (here null) is handed back unchanged even with a limit set,
         rather than raising from a slice of None.
         """
-        os.environ[SessionUtil.MAX_AGENTS_ENV_VAR] = "1"
+        os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = "1"
         session: HttpConciergeSession = self.make_session()
         with self.patch_get({"agents": None}):
             result: Dict[str, Any] = session.list({})

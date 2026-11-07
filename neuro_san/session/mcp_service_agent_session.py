@@ -28,9 +28,9 @@ from requests import Response
 from leaf_common.time.timeout import Timeout
 
 from neuro_san.interfaces.agent_session import AgentSession
+from neuro_san.internals.utils.external_listing_limit import ExternalListingLimit
 from neuro_san.session.abstract_http_service_agent_session import AbstractHttpServiceAgentSession
 from neuro_san.session.mcp_chat_response_dictionary_converter import McpChatResponseDictionaryConverter
-from neuro_san.session.session_util import SessionUtil
 
 # MCP protocol version supported by this MCP session
 # Protocol specification is available at:
@@ -186,7 +186,7 @@ class McpServiceAgentSession(AbstractHttpServiceAgentSession, AgentSession):
         tools_list: List[Dict[str, Any]] = result_dict.get("tools", empty_list)
 
         # Potentially limit the tools list to the value of the MAX_AGENTS_FROM_EXTERNAL_SERVER env var
-        tools_list = SessionUtil.limit_agents_list(tools_list)
+        tools_list = ExternalListingLimit.limit_agents_list(tools_list)
         use_tool: Dict[str, Any] = self.find_tool_for_network(tools_list)
         if use_tool is None:
             # Nothing stands for the network any more, so forget whatever an

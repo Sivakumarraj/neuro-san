@@ -25,16 +25,16 @@ from unittest.mock import patch
 
 from typing_extensions import override
 
-from neuro_san.session.session_util import SessionUtil
+from neuro_san.internals.utils.external_listing_limit import ExternalListingLimit
 
 
-class TestSessionUtil(TestCase):
+class TestExternalListingLimit(TestCase):
     """
-    Unit tests for SessionUtil: how MAX_AGENTS_FROM_EXTERNAL_SERVER is read and applied to a listing.
+    Unit tests for ExternalListingLimit: how MAX_AGENTS_FROM_EXTERNAL_SERVER is read and applied to a listing.
     """
 
     AGENTS: List[str] = ["a", "b", "c", "d", "e"]
-    LOGGER_NAME: str = SessionUtil.__name__
+    LOGGER_NAME: str = ExternalListingLimit.__name__
 
     @override
     def setUp(self) -> None:
@@ -46,7 +46,7 @@ class TestSessionUtil(TestCase):
         env_patcher: Any = patch.dict(os.environ)
         env_patcher.start()
         self.addCleanup(env_patcher.stop)
-        os.environ.pop(SessionUtil.MAX_AGENTS_ENV_VAR, None)
+        os.environ.pop(ExternalListingLimit.MAX_AGENTS_ENV_VAR, None)
 
     @staticmethod
     def set_limit(value: Optional[str]) -> None:
@@ -56,18 +56,18 @@ class TestSessionUtil(TestCase):
         :param value: The value to set, or None to remove the variable
         """
         if value is None:
-            os.environ.pop(SessionUtil.MAX_AGENTS_ENV_VAR, None)
+            os.environ.pop(ExternalListingLimit.MAX_AGENTS_ENV_VAR, None)
         else:
-            os.environ[SessionUtil.MAX_AGENTS_ENV_VAR] = value
+            os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = value
 
     def test_unset_means_no_limit(self) -> None:
         """
         With the variable unset, the listing comes back untouched and nothing is logged.
         """
         self.set_limit(None)
-        self.assertEqual(0, SessionUtil.get_max_agents())
+        self.assertEqual(0, ExternalListingLimit.get_max_agents())
         with self.assertNoLogs(self.LOGGER_NAME):
-            self.assertIs(self.AGENTS, SessionUtil.limit_agents_list(self.AGENTS))
+            self.assertIs(self.AGENTS, ExternalListingLimit.limit_agents_list(self.AGENTS))
 
     def test_zero_negative_and_blank_mean_no_limit(self) -> None:
         """
@@ -78,21 +78,21 @@ class TestSessionUtil(TestCase):
         for value in ["0", "-1", "-999", "", "  "]:
             with self.subTest(value=value):
                 self.set_limit(value)
-                self.assertEqual(0, SessionUtil.get_max_agents())
+                self.assertEqual(0, ExternalListingLimit.get_max_agents())
                 with self.assertNoLogs(self.LOGGER_NAME):
-                    self.assertIs(self.AGENTS, SessionUtil.limit_agents_list(self.AGENTS))
+                    self.assertIs(self.AGENTS, ExternalListingLimit.limit_agents_list(self.AGENTS))
 
     def test_positive_limit_truncates_and_warns(self) -> None:
         """
         A positive limit keeps the first N entries and logs one warning that names the variable.
         """
         self.set_limit("3")
-        self.assertEqual(3, SessionUtil.get_max_agents())
+        self.assertEqual(3, ExternalListingLimit.get_max_agents())
         with self.assertLogs(self.LOGGER_NAME, level="WARNING") as logs:
-            limited: List[str] = SessionUtil.limit_agents_list(self.AGENTS)
+            limited: List[str] = ExternalListingLimit.limit_agents_list(self.AGENTS)
         self.assertEqual(["a", "b", "c"], limited)
         self.assertEqual(1, len(logs.output))
-        self.assertIn(SessionUtil.MAX_AGENTS_ENV_VAR, logs.output[0])
+        self.assertIn(ExternalListingLimit.MAX_AGENTS_ENV_VAR, logs.output[0])
 
     def test_limit_not_reached_returns_list_unchanged(self) -> None:
         """
@@ -104,7 +104,7 @@ class TestSessionUtil(TestCase):
             with self.subTest(value=value):
                 self.set_limit(value)
                 with self.assertNoLogs(self.LOGGER_NAME):
-                    self.assertIs(self.AGENTS, SessionUtil.limit_agents_list(self.AGENTS))
+                    self.assertIs(self.AGENTS, ExternalListingLimit.limit_agents_list(self.AGENTS))
 
     def test_integer_parsing_tolerates_whitespace_and_sign(self) -> None:
         """
@@ -115,7 +115,7 @@ class TestSessionUtil(TestCase):
         for value in [" 2 ", "+2", "2\n"]:
             with self.subTest(value=value):
                 self.set_limit(value)
-                self.assertEqual(2, SessionUtil.get_max_agents())
+                self.assertEqual(2, ExternalListingLimit.get_max_agents())
 
     def test_non_integer_is_ignored_with_warning(self) -> None:
         """
@@ -127,9 +127,9 @@ class TestSessionUtil(TestCase):
             with self.subTest(value=value):
                 self.set_limit(value)
                 with self.assertLogs(self.LOGGER_NAME, level="WARNING") as logs:
-                    self.assertEqual(0, SessionUtil.get_max_agents())
+                    self.assertEqual(0, ExternalListingLimit.get_max_agents())
                 self.assertEqual(1, len(logs.output))
-                self.assertIn(SessionUtil.MAX_AGENTS_ENV_VAR, logs.output[0])
+                self.assertIn(ExternalListingLimit.MAX_AGENTS_ENV_VAR, logs.output[0])
                 self.assertIn(value, logs.output[0])
 
     def test_non_list_input_is_returned_unchanged(self) -> None:
@@ -150,4 +150,4 @@ class TestSessionUtil(TestCase):
         payload: Any = None
         for payload in payloads:
             with self.subTest(payload=payload):
-                self.assertIs(payload, SessionUtil.limit_agents_list(payload))
+                self.assertIs(payload, ExternalListingLimit.limit_agents_list(payload))

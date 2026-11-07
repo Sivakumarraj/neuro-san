@@ -39,6 +39,7 @@ from mcp.types import Tool as McpTool
 from typing_extensions import override
 
 from neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter import LangChainMcpAdapter
+from neuro_san.internals.utils.external_listing_limit import ExternalListingLimit
 
 
 # These tests reset the adapter's class-level servers-info cache directly.
@@ -61,8 +62,15 @@ class TestLangChainMcpAdapter(IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         """
         Clears the adapter's shared servers-info cache and builds a fresh adapter
-        and a plain mock tool for each test.
+        and a plain mock tool for each test. MAX_AGENTS_FROM_EXTERNAL_SERVER starts
+        unset, whatever the shell exports, so no listing is capped unless a test says so.
         """
+        # patch.dict restores all of os.environ on cleanup, even if the test fails.
+        env_patcher: Any = patch.dict(os.environ)
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+        os.environ.pop(ExternalListingLimit.MAX_AGENTS_ENV_VAR, None)
+
         LangChainMcpAdapter._mcp_servers_info = None
         self.adapter: LangChainMcpAdapter = LangChainMcpAdapter()
         self.mock_mcp_tool: MagicMock = self._make_tool("test_tool")
@@ -129,9 +137,10 @@ class TestLangChainMcpAdapter(IsolatedAsyncioTestCase):
 
     def test_init(self) -> None:
         """
-        A fresh adapter has no unmatched allow-list entries and a logger.
+        A fresh adapter has no unmatched allow-list entries, no dropped tools and a logger.
         """
         self.assertEqual(self.adapter.get_unmatched_allowed_tools(), [])
+        self.assertEqual(self.adapter.get_dropped_tool_count(), 0)
         self.assertIsNotNone(self.adapter.logger)
 
     @patch('neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter.MultiServerMCPClient')
@@ -152,6 +161,81 @@ class TestLangChainMcpAdapter(IsolatedAsyncioTestCase):
         self.assertIn("langchain_tool", tools[0].tags)
         mock_client_class.assert_called_once()
         mock_client.get_tools.assert_called_once()
+
+    @patch('neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter.MultiServerMCPClient')
+    async def test_listing_cap_keeps_the_first_tools_and_warns(self, mock_client_class: MagicMock) -> None:
+        """
+        With MAX_AGENTS_FROM_EXTERNAL_SERVER set, only the first that many tools the server
+        listed are kept, the rest are counted as dropped, and a warning names the server.
+
+        :param mock_client_class: Patched MultiServerMCPClient class.
+        """
+        os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = "2"
+        mock_client: MagicMock = mock_client_class.return_value
+        mock_client.get_tools = AsyncMock(return_value=self._make_tools(["a", "b", "c", "d"]))
+
+        with self.assertLogs(self.ADAPTER_LOGGER, level=WARNING) as captured:
+            tools: List[StructuredTool] = await self.adapter.get_mcp_tools(self.SERVER_URL)
+        output: str = "\n".join(captured.output)
+
+        names: List[str] = []
+        tool: StructuredTool = None
+        # Collect the kept names in order
+        for tool in tools:
+            names.append(tool.name)
+        self.assertEqual(names, ["a", "b"])
+        self.assertEqual(self.adapter.get_dropped_tool_count(), 2)
+        self.assertIn(f"MCP server {self.SERVER_URL} listed 4 tools", output)
+        self.assertIn(f"{ExternalListingLimit.MAX_AGENTS_ENV_VAR}=2", output)
+
+    @patch('neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter.MultiServerMCPClient')
+    async def test_listing_cap_applies_before_the_allow_list(self, mock_client_class: MagicMock) -> None:
+        """
+        The cap bounds the listing before the allow list filters it, so an allowed tool
+        after the cap is not returned and is reported as unmatched.
+
+        :param mock_client_class: Patched MultiServerMCPClient class.
+        """
+        os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = "2"
+        mock_client: MagicMock = mock_client_class.return_value
+        mock_client.get_tools = AsyncMock(return_value=self._make_tools(["a", "b", "c"]))
+
+        with self.assertLogs(self.ADAPTER_LOGGER, level=WARNING):
+            tools: List[StructuredTool] = await self.adapter.get_mcp_tools(self.SERVER_URL, allowed_tools=["a", "c"])
+
+        self.assertEqual(len(tools), 1)
+        self.assertEqual(tools[0].name, "a")
+        self.assertEqual(self.adapter.get_unmatched_allowed_tools(), ["c"])
+        self.assertEqual(self.adapter.get_dropped_tool_count(), 1)
+
+    @patch('neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter.MultiServerMCPClient')
+    async def test_no_listing_cap_unless_a_positive_integer_is_set(self, mock_client_class: MagicMock) -> None:
+        """
+        Unset, blank, 0, negative and non-integer values all mean no cap, as for the client
+        sessions; a non-integer is warned about. A cap from an earlier call does not carry over.
+
+        :param mock_client_class: Patched MultiServerMCPClient class.
+        """
+        mock_client: MagicMock = mock_client_class.return_value
+        os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = "1"
+        mock_client.get_tools = AsyncMock(return_value=self._make_tools(["a", "b"]))
+        with self.assertLogs(self.ADAPTER_LOGGER, level=WARNING):
+            await self.adapter.get_mcp_tools(self.SERVER_URL)
+        self.assertEqual(self.adapter.get_dropped_tool_count(), 1)
+
+        value: str = None
+        # Each value is tried on a fresh listing of three tools
+        for value in ["", "0", "-1", "lots"]:
+            with self.subTest(value=value):
+                os.environ[ExternalListingLimit.MAX_AGENTS_ENV_VAR] = value
+                mock_client.get_tools = AsyncMock(return_value=self._make_tools(["a", "b", "c"]))
+                if value == "lots":
+                    with self.assertLogs(ExternalListingLimit.__name__, level=WARNING):
+                        tools: List[StructuredTool] = await self.adapter.get_mcp_tools(self.SERVER_URL)
+                else:
+                    tools = await self.adapter.get_mcp_tools(self.SERVER_URL)
+                self.assertEqual(len(tools), 3)
+                self.assertEqual(self.adapter.get_dropped_tool_count(), 0)
 
     @patch('neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter.MultiServerMCPClient')
     async def test_get_mcp_tools_with_allowed_tools_param(self, mock_client_class: MagicMock) -> None:

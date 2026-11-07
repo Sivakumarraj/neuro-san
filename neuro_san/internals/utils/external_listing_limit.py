@@ -25,9 +25,12 @@ from logging import Logger
 from leaf_common.utils.environment_util import EnvironmentUtil as Env
 
 
-class SessionUtil:
+class ExternalListingLimit:
     """
-    Static utility class with common session policy.
+    The MAX_AGENTS_FROM_EXTERNAL_SERVER policy: how many entries neuro-san takes from another
+    server's listing of agents or tools, so that a long listing cannot drive an unbounded loop.
+    Both the client sessions (HttpConciergeSession, McpServiceAgentSession) and the server's
+    MCP tool fetching (LangChainMcpAdapter) apply it.
     """
 
     MAX_AGENTS_ENV_VAR: str = "MAX_AGENTS_FROM_EXTERNAL_SERVER"
@@ -40,7 +43,7 @@ class SessionUtil:
 
         :return: The limit, or 0 for no limit
         """
-        max_agents_str: Optional[str] = Env.getenv(SessionUtil.MAX_AGENTS_ENV_VAR)
+        max_agents_str: Optional[str] = Env.getenv(ExternalListingLimit.MAX_AGENTS_ENV_VAR)
         if max_agents_str is None or max_agents_str.strip() == "":
             return 0
 
@@ -48,9 +51,9 @@ class SessionUtil:
         try:
             max_agents = int(max_agents_str)
         except ValueError:
-            logger: Logger = getLogger(SessionUtil.__name__)
+            logger: Logger = getLogger(ExternalListingLimit.__name__)
             logger.warning("Ignoring %s=%r: not an integer, so no limit is applied to server listings",
-                           SessionUtil.MAX_AGENTS_ENV_VAR, max_agents_str)
+                           ExternalListingLimit.MAX_AGENTS_ENV_VAR, max_agents_str)
             return 0
 
         # A negative value means unlimited, same as 0.
@@ -68,12 +71,12 @@ class SessionUtil:
         if not isinstance(agents_list, list):
             return agents_list
 
-        max_agents: int = SessionUtil.get_max_agents()
+        max_agents: int = ExternalListingLimit.get_max_agents()
         if max_agents <= 0 or len(agents_list) <= max_agents:
             return agents_list
 
-        logger: Logger = getLogger(SessionUtil.__name__)
+        logger: Logger = getLogger(ExternalListingLimit.__name__)
         logger.warning("%s=%d: considering only the first %d of the %d entries the server listed",
-                       SessionUtil.MAX_AGENTS_ENV_VAR, max_agents, max_agents, len(agents_list))
+                       ExternalListingLimit.MAX_AGENTS_ENV_VAR, max_agents, max_agents, len(agents_list))
         use_agents_list: List[Any] = agents_list[:max_agents]
         return use_agents_list

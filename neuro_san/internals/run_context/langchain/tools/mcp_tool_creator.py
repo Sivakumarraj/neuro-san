@@ -30,6 +30,7 @@ from neuro_san.internals.run_context.interfaces.tool_caller import ToolCaller
 from neuro_san.internals.run_context.langchain.mcp.langchain_mcp_adapter import LangChainMcpAdapter
 from neuro_san.internals.run_context.langchain.tools.exposed_tool_names import ExposedToolNames
 from neuro_san.internals.run_context.langchain.tools.tool_creator import ToolCreator
+from neuro_san.internals.utils.external_listing_limit import ExternalListingLimit
 from neuro_san.message.types.agent_message import AgentMessage
 
 
@@ -100,6 +101,17 @@ class McpToolCreator(ToolCreator):
             message += ExceptionUtil.get_exception_details(nested_exception)
             await self.report_tool_exclusion(message)
             return None
+
+        # The adapter keeps at most MAX_AGENTS_FROM_EXTERNAL_SERVER of the tools the server
+        # listed. Say so before any allow-list report below, because an allowed tool after
+        # the cap is reported there as not found.
+        dropped_count: int = mcp_adapter.get_dropped_tool_count()
+        if dropped_count > 0:
+            message = (f"{self.agent_location}: {server_url} listed more tools than "
+                       f"{ExternalListingLimit.MAX_AGENTS_ENV_VAR} allows, so its last {dropped_count} were not "
+                       "considered. A tool among them is not available, even if the allow list names it.")
+            await self.journal.write_message(AgentMessage(content=message))
+            self.logger.info(message)
 
         # The adapter matches allow-list entries against the names the server
         # advertised, in either spelling, and then renames tools for the LLM

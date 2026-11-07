@@ -30,6 +30,7 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from neuro_san.internals.run_context.langchain.mcp.mcp_servers_info_restorer import McpServersInfoRestorer
 from neuro_san.internals.run_context.langchain.mcp.mcp_tool_error_handler import McpToolErrorHandler
+from neuro_san.internals.utils.external_listing_limit import ExternalListingLimit
 from neuro_san.internals.utils.mcp_tool_name_policy import McpToolNamePolicy
 
 
@@ -71,6 +72,9 @@ class LangChainMcpAdapter:
         # tool the server advertised, in either spelling. Read through
         # get_unmatched_allowed_tools().
         self.unmatched_allowed_tools: List[str] = []
+        # How many of the tools the last get_mcp_tools() call's server listed were
+        # dropped by MAX_AGENTS_FROM_EXTERNAL_SERVER. Read through get_dropped_tool_count().
+        self.dropped_tool_count: int = 0
 
     def get_unmatched_allowed_tools(self) -> List[str]:
         """
@@ -86,6 +90,15 @@ class LangChainMcpAdapter:
                  every entry matched or there was no allow list.
         """
         return list(self.unmatched_allowed_tools)
+
+    def get_dropped_tool_count(self) -> int:
+        """
+        Reports how many tools the last get_mcp_tools() call left out because of
+        MAX_AGENTS_FROM_EXTERNAL_SERVER, so McpToolCreator can tell the user.
+
+        :return: The number of listed tools that were not considered; 0 when none were.
+        """
+        return self.dropped_tool_count
 
     def _load_mcp_servers_info(self):
         """
@@ -166,6 +179,10 @@ class LangChainMcpAdapter:
         #   It's possible we might want to cache these results somehow to minimize tool calls.
         mcp_tools: List[BaseTool] = await client.get_tools()
 
+        # Cap the listing before anything below loops over it, the allow list included,
+        # as the client sessions do with the listings they receive.
+        mcp_tools = self._limit_listed_tools(server_url, mcp_tools)
+
         # If allowed_tools is provided, filter the list to include only those tools.
         client_allowed_tools: List[str] = allowed_tools
         # Where the allow list was written, so a warning about it can say where
@@ -204,6 +221,30 @@ class LangChainMcpAdapter:
                 tool.coroutine = McpToolErrorHandler(tool).async_invoke
 
         return mcp_tools
+
+    def _limit_listed_tools(self, server_url: str, mcp_tools: List[BaseTool]) -> List[BaseTool]:
+        """
+        Keeps at most MAX_AGENTS_FROM_EXTERNAL_SERVER of the tools the server listed, in the
+        server's order, and records how many were dropped for get_dropped_tool_count().
+        A tool after the cap is unavailable even if the allow list names it.
+
+        :param server_url: URL of the MCP server, for the warning.
+        :param mcp_tools: The tools as the server listed them.
+        :return: The listed tools, or only the first MAX_AGENTS_FROM_EXTERNAL_SERVER of them.
+        """
+        self.dropped_tool_count = 0
+        max_tools: int = ExternalListingLimit.get_max_agents()
+        if max_tools <= 0 or len(mcp_tools) <= max_tools:
+            return mcp_tools
+
+        self.dropped_tool_count = len(mcp_tools) - max_tools
+        self.logger.warning(
+            "%sMCP server %s listed %d tools, but %s=%d: considering only the first %d. "
+            "An allowed tool after them is not available.",
+            self.agent_location_prefix, server_url, len(mcp_tools), ExternalListingLimit.MAX_AGENTS_ENV_VAR,
+            max_tools, max_tools)
+        limited_tools: List[BaseTool] = mcp_tools[:max_tools]
+        return limited_tools
 
     def _filter_allowed_tools(
             self,

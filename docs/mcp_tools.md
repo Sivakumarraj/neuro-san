@@ -12,6 +12,7 @@ neuro-san agent network directly, see [External Agents](./external_agents.md).
 - [Recognized server URLs](#recognized-server-urls)
 - [String and dictionary references](#string-and-dictionary-references)
 - [Tool names](#tool-names)
+- [Long tool listings](#long-tool-listings)
 - [Authentication](#authentication)
 
 <!--TOC-->
@@ -89,6 +90,13 @@ skipped with a warning.
 try strict mode and make the model fill in every optional argument, so the `openai` class sends
 `strict: false` on every tool by default; see
 [`tool_strict`](./llm_info_hocon_reference.md#openai-reasoning-and-responses-api-parameters).
+
+## Long tool listings
+
+Set the `MAX_AGENTS_FROM_EXTERNAL_SERVER` environment variable on the server to a positive integer to take
+at most that many tools from each MCP server's listing, in the order the server lists them. The limit applies
+before the `tools` allow list, so an allowed tool after it is not available. The server logs a warning and
+writes a journal message when tools are dropped. Unset, `0` (the default) or a negative value means no limit.
 
 ## Authentication
 

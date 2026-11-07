@@ -77,18 +77,20 @@ class TestMcpToolCreator(IsolatedAsyncioTestCase):
 
     @staticmethod
     def prepare_adapter(mock_adapter_class: MagicMock, tools: List[BaseTool],
-                        unmatched: List[str] = None) -> MagicMock:
+                        unmatched: List[str] = None, dropped: int = 0) -> MagicMock:
         """
         Configures the patched adapter class's instance for a test.
 
         :param mock_adapter_class: The patched LangChainMcpAdapter class
         :param tools: What get_mcp_tools() should return
         :param unmatched: What get_unmatched_allowed_tools() should return
+        :param dropped: What get_dropped_tool_count() should return
         :return: The adapter instance mock
         """
         mock_adapter: MagicMock = mock_adapter_class.return_value
         mock_adapter.get_mcp_tools = AsyncMock(return_value=tools)
         mock_adapter.get_unmatched_allowed_tools = MagicMock(return_value=unmatched or [])
+        mock_adapter.get_dropped_tool_count = MagicMock(return_value=dropped)
         return mock_adapter
 
     @patch(ADAPTER_PATH)
@@ -187,6 +189,29 @@ class TestMcpToolCreator(IsolatedAsyncioTestCase):
         self.assertTrue(reported.content.startswith(f"{self.AGENT_LOCATION}: "), reported.content)
         self.assertIn("cannot be found", reported.content)
         self.assertIn("nope", reported.content)
+
+    @patch(ADAPTER_PATH)
+    async def test_tools_dropped_by_the_listing_cap_are_reported_first(self, mock_adapter_class: MagicMock) -> None:
+        """
+        When MAX_AGENTS_FROM_EXTERNAL_SERVER cut the server's listing, the journal says so,
+        and says it before the allow-list report that the cut can cause.
+
+        :param mock_adapter_class: Patched LangChainMcpAdapter class.
+        """
+        tool: MagicMock = self.make_named_tool("tool_1")
+        self.prepare_adapter(mock_adapter_class, [tool], unmatched=["tool_9"], dropped=3)
+        creator: McpToolCreator = self.make_creator(allowed_tools=["tool_1", "tool_9"])
+
+        result: List[BaseTool] = await creator.create_tool(self.SERVER_URL)
+
+        self.assertEqual(result, [tool])
+        self.assertEqual(creator.journal.write_message.await_count, 2)
+        first: AgentMessage = creator.journal.write_message.await_args_list[0].args[0]
+        second: AgentMessage = creator.journal.write_message.await_args_list[1].args[0]
+        self.assertTrue(first.content.startswith(f"{self.AGENT_LOCATION}: "), first.content)
+        self.assertIn("MAX_AGENTS_FROM_EXTERNAL_SERVER", first.content)
+        self.assertIn("last 3", first.content)
+        self.assertIn("cannot be found", second.content)
 
     @patch(ADAPTER_PATH)
     async def test_unreachable_server_is_reported_and_yields_none(self, mock_adapter_class: MagicMock) -> None:

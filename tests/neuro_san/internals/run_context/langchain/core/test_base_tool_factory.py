@@ -249,6 +249,7 @@ class TestBaseToolFactory(IsolatedAsyncioTestCase):
         """
         mock_adapter: MagicMock = mock_adapter_class.return_value
         mock_adapter.get_unmatched_allowed_tools = MagicMock(return_value=[])
+        mock_adapter.get_dropped_tool_count = MagicMock(return_value=0)
         mock_adapter.get_mcp_tools = AsyncMock(return_value=[self.make_named_tool("a"), self.make_named_tool("b")])
         factory: BaseToolFactory = self.make_factory(agent_spec=None)
 
@@ -273,6 +274,7 @@ class TestBaseToolFactory(IsolatedAsyncioTestCase):
         other_tool: MagicMock = self.make_named_tool("other_tool")
         mock_adapter: MagicMock = mock_adapter_class.return_value
         mock_adapter.get_unmatched_allowed_tools = MagicMock(return_value=[])
+        mock_adapter.get_dropped_tool_count = MagicMock(return_value=0)
         mock_adapter.get_mcp_tools = AsyncMock(side_effect=[[first_server_tool], [second_server_tool, other_tool]])
         factory: BaseToolFactory = self.make_factory(agent_spec=None)
 
@@ -299,6 +301,7 @@ class TestBaseToolFactory(IsolatedAsyncioTestCase):
         """
         mock_adapter: MagicMock = mock_adapter_class.return_value
         mock_adapter.get_unmatched_allowed_tools = MagicMock(return_value=[])
+        mock_adapter.get_dropped_tool_count = MagicMock(return_value=0)
         mock_adapter.get_mcp_tools = AsyncMock(return_value=[self.make_named_tool("a")])
         factory: BaseToolFactory = self.make_factory(agent_spec=None)
 
