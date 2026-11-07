@@ -18,6 +18,7 @@
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import Optional
 
 import logging
 import os
@@ -98,37 +99,41 @@ class AgentServerLogging:
         :param env_var_name: The name of the environment variable
         :return: The redacted string
         """
-        # Mask secrets before slicing. A slice can cut off the start of a secret,
-        # and the rest of it no longer matches a pattern.
-        masked_str: str = self.secret_masker.mask(input_str)
-        value: str = f"'{masked_str}'"
-
-        # Determine the value of the environment variable
+        # Determine the extent and direction of the slice
+        marker_slice: Optional[int] = None
         slice_str: str = os.environ.get(env_var_name)
         if slice_str is not None and len(slice_str) > 0:
-
-            # Deterimine the extent and direction of the slice
             try:
-                marker_slice: int = int(slice_str)
-
-                if marker_slice == 0:
-                    value = "<redacted>"
-                elif marker_slice < 0:
-                    one_slice: str = masked_str[marker_slice:]
-                    prefix: str = ""
-                    if -marker_slice < len(masked_str):
-                        prefix = "..."
-                    value = f"'{prefix}{one_slice}'"
-                else:
-                    one_slice: str = masked_str[:marker_slice]
-                    suffix: str = ""
-                    if marker_slice < len(masked_str):
-                        suffix = "..."
-                    value = f"'{one_slice}{suffix}'"
+                marker_slice = int(slice_str)
             except ValueError:
                 # Not an int
                 logging.getLogger(self.__class__.__name__).info(
                     "Value for %s: '%s' needs to be integer or empty string.",
                     env_var_name, slice_str)
+
+        # A zero slice logs none of the input, so there is nothing to mask.
+        if marker_slice == 0:
+            return "<redacted>"
+
+        # Mask secrets before slicing. A slice can cut off the start of a secret,
+        # and the rest of it no longer matches a pattern.
+        masked_str: str = self.secret_masker.mask(input_str)
+        value: str = f"'{masked_str}'"
+
+        if marker_slice is None:
+            return value
+
+        if marker_slice < 0:
+            one_slice: str = masked_str[marker_slice:]
+            prefix: str = ""
+            if -marker_slice < len(masked_str):
+                prefix = "..."
+            value = f"'{prefix}{one_slice}'"
+        else:
+            one_slice: str = masked_str[:marker_slice]
+            suffix: str = ""
+            if marker_slice < len(masked_str):
+                suffix = "..."
+            value = f"'{one_slice}{suffix}'"
 
         return value

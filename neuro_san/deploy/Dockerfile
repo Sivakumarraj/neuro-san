@@ -199,9 +199,12 @@ ENV AGENT_REQUEST_LOGGING_INPUT_SLICE=""
 
 # Optional space-delimited list of regular expressions for secrets to mask as <redacted>
 # in the user input that request logging writes. These are masked in addition to the
-# common key formats masked by default: OpenAI, Anthropic and OpenRouter keys, AWS access
+# key formats masked by default: OpenAI, Anthropic, OpenRouter and NVIDIA keys, AWS access
 # key IDs, Google API keys, GitHub, Slack and Hugging Face tokens, JSON Web Tokens and
-# PEM private keys. Use \s for a space within a pattern.
+# PEM private keys. Keys with no recognizable prefix, such as Azure OpenAI keys and AWS
+# secret access keys, are not masked by default: add a pattern for them here, or set
+# AGENT_REQUEST_LOGGING_INPUT_SLICE to 0. A pattern that does not compile, or that
+# matches empty text, is logged as an error and skipped. Use \s for a space within a pattern.
 # See neuro_san/service/generic/secret_masker.py for the default patterns.
 ENV AGENT_REQUEST_LOGGING_SECRET_PATTERNS=""
 

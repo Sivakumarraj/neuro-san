@@ -15,6 +15,7 @@
 #
 # END COPYRIGHT
 
+from logging import INFO
 from os import environ
 from unittest import TestCase
 from unittest.mock import patch
@@ -68,6 +69,28 @@ class TestAgentServerLogging(TestCase):
             server_logging: AgentServerLogging = AgentServerLogging("test", "")
             value: str = server_logging.redact_per_env_var(f"my key is {self.FAKE_KEY}", self.SLICE_ENV_VAR)
         self.assertEqual(value, "<redacted>")
+
+    def test_zero_slice_does_not_scan_the_input(self) -> None:
+        """
+        Test that a zero slice returns without masking, since none of the input is logged.
+        """
+        with patch.dict(environ, {self.SLICE_ENV_VAR: "0"}, clear=True):
+            server_logging: AgentServerLogging = AgentServerLogging("test", "")
+            with patch.object(server_logging.secret_masker, "mask") as mock_mask:
+                value: str = server_logging.redact_per_env_var(f"my key is {self.FAKE_KEY}", self.SLICE_ENV_VAR)
+        self.assertEqual(value, "<redacted>")
+        mock_mask.assert_not_called()
+
+    def test_non_integer_slice_logs_the_whole_masked_input(self) -> None:
+        """
+        Test that a slice that is not an integer is reported and ignored, and the whole input
+        is logged with its secret masked.
+        """
+        with patch.dict(environ, {self.SLICE_ENV_VAR: "lots"}, clear=True):
+            server_logging: AgentServerLogging = AgentServerLogging("test", "")
+            with self.assertLogs("AgentServerLogging", level=INFO):
+                value: str = server_logging.redact_per_env_var(f"my key is {self.FAKE_KEY}", self.SLICE_ENV_VAR)
+        self.assertEqual(value, "'my key is <redacted>'")
 
     def test_masks_extra_patterns_from_env_var(self) -> None:
         """
