@@ -48,6 +48,8 @@ SECOND_AGENT_TOOL_PATH_PACKAGE: str = "tests.second_agent_tool_path"
 CANARY_MODULE: str = "tests.neuro_san.internals.graph.activations.resolution_canary"
 
 
+# One test class per source behavior is the repo convention, so the test count grows with it.
+# pylint: disable=too-many-public-methods
 class TestToolPathOnlyResolution(TestCase):
     """
     Tests for the AGENT_TOOL_PATH_ONLY environment variable, run against real
