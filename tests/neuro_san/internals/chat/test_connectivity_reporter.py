@@ -173,9 +173,9 @@ class TestConnectivityReporter(TestCase):
         tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
         self.assertEqual(tools, ["agent_a", "agent_b"])
 
-    def test_assemble_tool_list_expands_filtered_dict_mcp_reference(self):
+    def test_assemble_tool_list_expands_filtered_dict_mcp_reference(self) -> None:
         """
-        Tests that a dict-form MCP reference with a tools filter is reported once per
+        Tests that a dict-form MCP reference with a tools allow list is reported once per
         tool, as "<url>::<tool>", next to the string references.
         """
         agent_spec: Dict[str, Any] = {
@@ -194,55 +194,63 @@ class TestConnectivityReporter(TestCase):
             "https://example.com/other/mcp::tool_2",
         ])
 
-    def test_assemble_tool_list_reports_unfiltered_dict_mcp_reference_as_its_url(self):
+    def test_assemble_tool_list_reports_dict_mcp_reference_without_allow_list_as_its_url(self) -> None:
         """
-        Tests that a dict-form MCP reference with no filter, or an empty one, is reported
-        as its url, because at run time it gives the agent every tool on the server.
+        Tests that a dict-form MCP reference with no allow list, or an empty one, is reported
+        as its url, because at run time the agent then gets the whole server.
         """
         agent_spec: Dict[str, Any] = {
             "tools": [
                 {"url": "https://example.com/a/mcp"},
                 {"url": "https://example.com/b/mcp", "tools": []},
+                {"url": "https://example.com/c/mcp", "tools": ""},
             ],
         }
         tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
-        self.assertEqual(tools, ["https://example.com/a/mcp", "https://example.com/b/mcp"])
+        self.assertEqual(tools, ["https://example.com/a/mcp", "https://example.com/b/mcp", "https://example.com/c/mcp"])
 
-    def test_assemble_tool_list_dedups_string_and_dict_references_to_one_server(self):
+    def test_assemble_tool_list_dedups_string_and_dict_references_to_one_server(self) -> None:
         """
-        Tests that a string reference and an unfiltered dict reference to the same server,
-        or the same filtered tool granted twice, are each reported once.
+        Tests that a string reference and a dict reference with no allow list to the same
+        server, or the same tool allowed twice, are each reported once.
         """
         agent_spec: Dict[str, Any] = {
             "tools": [
                 "https://example.com/mcp",
                 {"url": "https://example.com/mcp"},
                 {"url": "https://example.com/other/mcp", "tools": ["tool_1"]},
+                {"url": "https://example.com/other/mcp", "tools": ["tool_1"]},
             ],
-            "args": {"tools": [{"url": "https://example.com/other/mcp", "tools": ["tool_1"]}]},
         }
         tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
         self.assertEqual(tools, ["https://example.com/mcp", "https://example.com/other/mcp::tool_1"])
 
-    def test_assemble_tool_list_treats_malformed_filter_as_no_filter(self):
+    def test_assemble_tool_list_drops_dict_entries_in_args_tools(self) -> None:
         """
-        Tests that a tools filter that is not a list, such as a bare string, is treated as
-        no filter rather than iterated character by character, and that non-string names
-        in a filter are skipped.
+        Tests that a dict in `args.tools` is not reported: `args.tools` holds agent names,
+        so a coded tool can never call such an entry.
+        """
+        agent_spec: Dict[str, Any] = {
+            "args": {"tools": ["agent_a", {"url": "https://example.com/mcp", "tools": ["tool_1"]}]},
+        }
+        tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
+        self.assertEqual(tools, ["agent_a"])
+
+    def test_assemble_tool_list_reports_what_a_malformed_allow_list_grants(self) -> None:
+        """
+        Tests that only the allow-list entries the MCP adapter can use, non-empty strings, are
+        reported, and that an allow list that grants nothing, such as a bare string or a list
+        with no usable entry, reports nothing rather than the whole server.
         """
         agent_spec: Dict[str, Any] = {
             "tools": [
                 {"url": "https://example.com/a/mcp", "tools": "tool_1"},
-                {"url": "https://example.com/b/mcp", "tools": [3, "tool_1", None]},
+                {"url": "https://example.com/b/mcp", "tools": [3, "tool_1", None, ""]},
                 {"url": "https://example.com/c/mcp", "tools": [3]},
             ],
         }
         tools: List[str] = ConnectivityReporter.assemble_tool_list(agent_spec)
-        self.assertEqual(tools, [
-            "https://example.com/a/mcp",
-            "https://example.com/b/mcp::tool_1",
-            "https://example.com/c/mcp",
-        ])
+        self.assertEqual(tools, ["https://example.com/b/mcp::tool_1"])
 
     def test_dict_mcp_references_appear_in_network_connectivity(self) -> None:
         """

@@ -64,10 +64,13 @@ MCP servers can be configured in two formats:
     If omitted, all tools on the server will be accessible.
     - An entry that matches no tool on the server is reported to the client, and the server log also
     lists the names the server does offer. The other entries still take effect.
-    - The Connectivity API lists a dictionary reference once per tool in its `tools` list, as
-    `<url>::<tool>`, for example `https://example.com/mcp::tool_1`. Without a `tools` list, or with an
-    empty one, it lists the url alone, as it does for a string reference. Clients can split an id with
-    `rsplit("::", 1)`.
+    - The Connectivity API lists a dictionary reference the way the agent gets its tools: once per
+    tool name in its `tools` list, as `<url>::<tool>`, for example `https://example.com/mcp::tool_1`.
+    Without a `tools` list, or with an empty one, it lists the url alone, as it does for a string
+    reference. A `tools` list with no usable name, or one that is not a list, gives the agent no tools
+    from that server, so nothing is listed. An id carries a tool name when the text after its last `::`
+    is made only of letters, digits, `_`, `-` and `.`; a url alone, even one with an IPv6 host, has a
+    `/` or `]` there.
 
 ## Tool names
 

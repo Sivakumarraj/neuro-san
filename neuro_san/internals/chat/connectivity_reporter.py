@@ -58,13 +58,14 @@ class ConnectivityReporter:
         No effort to discover their internal connectivity is attempted.
         Maybe someday.
     *   A dictionary-form MCP reference is reported by its url, once per tool in its
-        "tools" filter as "<url>::<tool>", or as the url alone when it has no filter.
+        "tools" allow list as "<url>::<tool>", or as the url alone when it has none.
         See expand_tool_reference().
     """
 
     # Joins an MCP server url and one tool name into a single id. MCP tool names should be
-    # ASCII letters, digits, "_", "-" and ".", so "::" cannot be part of a conforming name,
-    # and clients can split an id with rsplit("::", 1), even for an IPv6 host.
+    # ASCII letters, digits, "_", "-" and ".", so "::" cannot be part of a conforming name.
+    # An id carries a tool when the text after its last "::" is such a name; a url alone,
+    # even one with an IPv6 host such as "http://[::1]:8000/mcp", leaves "/" or "]" there.
     MCP_TOOL_ID_SEPARATOR: str = "::"
 
     def __init__(self, inspector: AgentNetworkInspector, toolbox_factory: ContextTypeToolboxFactory = None):
@@ -208,15 +209,17 @@ class ConnectivityReporter:
 
         # Combine the traditional `tools` field with `args.tools` (the coded-tool
         # convention). coerce_* keep the result tolerant to malformed shapes.
+        # Only `tools` can hold a dictionary-form MCP reference: `args.tools` must hold
+        # agent names (ToolsShapeValidator.validate_args_tools), so a dict there is dropped.
         coerced_tools: List[Any] = AbstractNetworkValidator.coerce_tools(agent_spec)
         coerced_args_tools: List[Any] = AbstractNetworkValidator.coerce_args_tools(agent_spec)
-        combined: List[Any] = coerced_tools + coerced_args_tools
+        combined: List[Any] = coerced_tools + AbstractNetworkValidator.remove_dictionary_tools(coerced_args_tools)
 
         # Keep a set of the combined sources of tools,
         # so connectivity only gets reported once.
         tool_set: Set[str] = set()
         tool: Any = None
-        # Each reference becomes one or more string ids, so the dedup set never sees a dict.
+        # Each reference becomes zero or more string ids, so the dedup set never sees a dict.
         for tool in combined:
             entry: str = None
             # Each id is reported once, in the order it was first seen.
@@ -230,11 +233,18 @@ class ConnectivityReporter:
     @staticmethod
     def expand_tool_reference(tool: Any) -> List[str]:
         """
-        Turn one entry of an agent's tools list into the ids the connectivity report lists for it.
+        Turn one entry of an agent's tools list into the ids the connectivity report lists for it,
+        so that the report shows what the agent can reach at run time.
 
-        A string is reported as given. A dictionary-form MCP reference is reported by its url:
-        once per tool in its "tools" filter, as "<url>::<tool>", or as the url alone when it has no
-        filter, which at run time means every tool on the server. Anything else is not reported.
+        A string is reported as given. A dictionary-form MCP reference is reported by its url, as
+        LangChainMcpAdapter.get_mcp_tools() reads its "tools" allow list:
+            *   No allow list, or an empty one: the url alone. The agent gets every tool the server
+                lists, or, for a missing list, the tools its MCP servers info entry allows.
+            *   A list: "<url>::<tool>" for each entry that is a non-empty string, the entries the
+                adapter can use. A list with none of those gives the agent no tools, so nothing.
+            *   Any other shape, such as a bare string: nothing. The adapter would treat it as a
+                list of its characters, which grants practically no tools.
+        Anything else, such as a dictionary with no url, is not reported.
 
         :param tool: One entry of an agent's tools list
         :return: The ids to report for the entry, possibly none
@@ -248,21 +258,21 @@ class ConnectivityReporter:
             return expanded
 
         url: str = tool.get("url")
-        filtered: Any = tool.get("tools")
-        if not isinstance(filtered, list):
-            # Treat a malformed filter, such as a bare string, as no filter,
-            # rather than iterating a string character by character.
-            filtered = []
+        allowed: Any = tool.get("tools")
+        if not allowed:
+            # No allow list: the whole server is one node.
+            expanded.append(url)
+            return expanded
+
+        if not isinstance(allowed, list):
+            # A malformed allow list grants practically nothing at run time.
+            return expanded
 
         name: Any = None
-        # Each tool name in the filter is its own node for the client to draw.
-        for name in filtered:
-            if isinstance(name, str):
+        # Each usable tool name in the allow list is its own node for the client to draw.
+        for name in allowed:
+            if isinstance(name, str) and len(name) > 0:
                 expanded.append(f"{url}{ConnectivityReporter.MCP_TOOL_ID_SEPARATOR}{name}")
-
-        if len(expanded) == 0:
-            # No usable filter: the whole server is one node.
-            expanded.append(url)
 
         return expanded
 
