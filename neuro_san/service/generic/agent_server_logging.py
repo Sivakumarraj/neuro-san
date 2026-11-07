@@ -24,11 +24,17 @@ import os
 
 from leaf_common.logging.logging_setup import LoggingSetup
 
+from neuro_san.service.generic.secret_masker import SecretMasker
+
 
 class AgentServerLogging:
     """
     Common logging setup for the agent server threads.
     """
+
+    # A space-delimited list of regular expressions for secrets to mask in request logging,
+    # in addition to the common key formats SecretMasker masks by default.
+    SECRET_PATTERNS_ENV_VAR: str = "AGENT_REQUEST_LOGGING_SECRET_PATTERNS"
 
     def __init__(self, server_name_for_logs: str,
                  forwarded_request_metadata_str: str,
@@ -46,6 +52,10 @@ class AgentServerLogging:
         self.server_name_for_logs: str = server_name_for_logs
         self.forwarded_request_metadata: List[str] = forwarded_request_metadata_str.split(" ")
         self.logging_config: Dict[str, Any] = logging_config
+
+        # The extra patterns are read once, when the agent is added to the server.
+        extra_secret_patterns: List[str] = os.environ.get(self.SECRET_PATTERNS_ENV_VAR, "").split()
+        self.secret_masker: SecretMasker = SecretMasker(extra_secret_patterns, self.SECRET_PATTERNS_ENV_VAR)
 
     def setup_logging(self, metadata: Dict[str, str] = None, request_id: str = "None"):
         """
@@ -82,12 +92,16 @@ class AgentServerLogging:
     def redact_per_env_var(self, input_str: str, env_var_name: str) -> str:
         """
         Redact a string using the value of an environment variable.
+        Secrets in the string, such as API keys, are masked first.
 
         :param input_str: The string to redact
         :param env_var_name: The name of the environment variable
         :return: The redacted string
         """
-        value: str = f"'{input_str}'"
+        # Mask secrets before slicing. A slice can cut off the start of a secret,
+        # and the rest of it no longer matches a pattern.
+        masked_str: str = self.secret_masker.mask(input_str)
+        value: str = f"'{masked_str}'"
 
         # Determine the value of the environment variable
         slice_str: str = os.environ.get(env_var_name)
@@ -100,15 +114,15 @@ class AgentServerLogging:
                 if marker_slice == 0:
                     value = "<redacted>"
                 elif marker_slice < 0:
-                    one_slice: str = input_str[marker_slice:]
+                    one_slice: str = masked_str[marker_slice:]
                     prefix: str = ""
-                    if -marker_slice < len(input_str):
+                    if -marker_slice < len(masked_str):
                         prefix = "..."
                     value = f"'{prefix}{one_slice}'"
                 else:
-                    one_slice: str = input_str[:marker_slice]
+                    one_slice: str = masked_str[:marker_slice]
                     suffix: str = ""
-                    if marker_slice < len(input_str):
+                    if marker_slice < len(masked_str):
                         suffix = "..."
                     value = f"'{one_slice}{suffix}'"
             except ValueError:

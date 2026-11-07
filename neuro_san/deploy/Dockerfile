@@ -194,7 +194,16 @@ ENV AGENT_SERVICE_LOG_LEVEL="DEBUG"
 #   > 0 means first N characters of user input is logged
 #   0 means no user input is logged
 #   < 0 means last N characters of user input is logged
+# Secrets in the user input are masked before it is sliced. See below.
 ENV AGENT_REQUEST_LOGGING_INPUT_SLICE=""
+
+# Optional space-delimited list of regular expressions for secrets to mask as <redacted>
+# in the user input that request logging writes. These are masked in addition to the
+# common key formats masked by default: OpenAI, Anthropic and OpenRouter keys, AWS access
+# key IDs, Google API keys, GitHub, Slack and Hugging Face tokens, JSON Web Tokens and
+# PEM private keys. Use \s for a space within a pattern.
+# See neuro_san/service/generic/secret_masker.py for the default patterns.
+ENV AGENT_REQUEST_LOGGING_SECRET_PATTERNS=""
 
 # The name of the service for health reporting purposes
 ENV AGENT_SERVER_NAME="neuro-san.Agent"
